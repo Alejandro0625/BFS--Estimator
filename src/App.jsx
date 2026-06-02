@@ -3,7 +3,7 @@ import * as XLSX from "xlsx";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const WASTE = 0.15;
-const API_URL = "https://api.anthropic.com/v1/messages";
+const API_URL = "/api/analyze";
 const MODEL = "claude-sonnet-4-20250514";
 
 // ─── Load PDF.js from CDN ─────────────────────────────────────────────────────
@@ -36,7 +36,7 @@ const renderPage = async (pdf, pageNum, scale = 1.5) => {
 const claude = async (content, system) => {
   const res = await fetch(API_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "anthropic-version": "2023-06-01" },
     body: JSON.stringify({
       model: MODEL,
       max_tokens: 4000,
