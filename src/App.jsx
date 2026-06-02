@@ -22,7 +22,7 @@ const loadPDFJS = () =>
   });
 
 // ─── Render PDF page → base64 JPEG ───────────────────────────────────────────
-const renderPage = async (pdf, pageNum, scale = 1.5) => {
+const renderPage = async (pdf, pageNum, scale = 0.8) => {
   const page = await pdf.getPage(pageNum);
   const vp = page.getViewport({ scale });
   const canvas = document.createElement("canvas");
@@ -249,7 +249,7 @@ export default function BPSEstimator() {
 
       const legendImgs = [];
       for (const p of legendPages.slice(0, 3)) {
-        const b64 = await renderPage(pdf, p, 1.0);
+        const b64 = await renderPage(pdf, p, 0.8);
         legendImgs.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: b64 } });
       }
       legendImgs.push({
@@ -285,7 +285,7 @@ export default function BPSEstimator() {
         const pct = 40 + Math.round((i / elevPages.length) * 50);
         setProg(`Analyzing page ${p} (${i + 1}/${elevPages.length})`, pct);
 
-        const b64 = await renderPage(pdf, p, 1.2);
+        const b64 = await renderPage(pdf, p, 0.8);
         const prompt = `${legendCtx}
 
 This is page ${p} — type: ${type} elevation.
@@ -355,7 +355,7 @@ Return ONLY valid JSON — no markdown:
         setProg("Cross-referencing 3D views for soffits/returns", 92);
         addLog("Cross-referencing 3D views for missed soffits and returns...", "info");
 
-        const v3d = await renderPage(pdf, relevant.views3d[0], 1.8);
+        const v3d = await renderPage(pdf, relevant.views3d[0], 0.8);
         const cr = parseJSON(await claude(
           [
             { type: "image", source: { type: "base64", media_type: "image/jpeg", data: v3d } },
