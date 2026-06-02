@@ -1,3 +1,11 @@
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '20mb',
+    },
+  },
+};
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -27,7 +35,7 @@ export default async function handler(req, res) {
       const data = JSON.parse(text);
       res.status(200).json(data);
     } catch {
-      res.status(500).json({ error: 'Anthropic returned invalid response', raw: text.slice(0, 200) });
+      res.status(500).json({ error: 'Invalid response', raw: text.slice(0, 200) });
     }
 
   } catch (err) {
