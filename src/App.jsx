@@ -209,7 +209,7 @@ export default function BPSEstimator() {
       // ── STEP 2: Filter pages ──
       addLog("Scanning pages to identify relevant drawings...", "info");
       setPhase("filtering");
-      const BATCH = 12;
+      const BATCH = 6;
       const relevant = { floorPlans: [], exteriorElevations: [], returnElevations: [], materialLegend: [], views3d: [], enlargedDetails: [] };
 
       for (let start = 1; start <= total; start += BATCH) {
@@ -218,7 +218,7 @@ export default function BPSEstimator() {
 
         const imgs = [];
         for (let p = start; p <= end; p++) {
-          const b64 = await renderPage(pdf, p, 0.55);
+          const b64 = await renderPage(pdf, p, 0.25);
           imgs.push({ type: "text", text: `PAGE ${p}:` });
           imgs.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: b64 } });
         }
@@ -249,7 +249,7 @@ export default function BPSEstimator() {
 
       const legendImgs = [];
       for (const p of legendPages.slice(0, 3)) {
-        const b64 = await renderPage(pdf, p, 2.0);
+        const b64 = await renderPage(pdf, p, 1.0);
         legendImgs.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: b64 } });
       }
       legendImgs.push({
@@ -285,7 +285,7 @@ export default function BPSEstimator() {
         const pct = 40 + Math.round((i / elevPages.length) * 50);
         setProg(`Analyzing page ${p} (${i + 1}/${elevPages.length})`, pct);
 
-        const b64 = await renderPage(pdf, p, 2.2);
+        const b64 = await renderPage(pdf, p, 1.2);
         const prompt = `${legendCtx}
 
 This is page ${p} — type: ${type} elevation.
