@@ -202,7 +202,7 @@ export default function BPSEstimator() {
 
       for (let p = 1; p <= total; p++) {
         setProg(`Scanning page ${p} of ${total}`, Math.round((p / total) * 30));
-        const b64 = await renderPage(pdf, p, 0.15); // very small thumbnail
+        const b64 = await renderPage(pdf, p, 0.1); // very small thumbnail
 
         const res = parseJSON(await claude(
           [
@@ -241,7 +241,7 @@ export default function BPSEstimator() {
       const legendPages = relevant.materialLegend.length ? relevant.materialLegend : relevant.exteriorElevations.slice(0, 2);
 
       for (const p of legendPages.slice(0, 3)) {
-        const b64 = await renderPage(pdf, p, 1.2);
+        const b64 = await renderPage(pdf, p, 0.7);
         const raw = await claude(
           [
             { type: "image", source: { type: "base64", media_type: "image/jpeg", data: b64 } },
@@ -275,7 +275,7 @@ export default function BPSEstimator() {
         const { p, type } = elevPages[i];
         setProg(`Analyzing elevation ${i + 1} of ${elevPages.length}`, 40 + Math.round((i / elevPages.length) * 50));
 
-        const b64 = await renderPage(pdf, p, 1.2);
+        const b64 = await renderPage(pdf, p, 0.7);
         const prompt = `${legendCtx}
 
 Page ${p} — ${type}. For EVERY elevation drawing on this page:
