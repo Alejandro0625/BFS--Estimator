@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import * as XLSX from "xlsx";
 
 const WASTE = 0.15;
@@ -217,6 +217,32 @@ export default function BPSEstimator() {
     XLSX.writeFile(wb, `BPS_Takeoff_${(results.projName || "Project").replace(/\s+/g, "_")}.xlsx`);
   };
 
+  const [pdfLoading, setPdfLoading] = useState(false);
+
+  const exportPDF = async () => {
+    if (!results) return;
+    setPdfLoading(true);
+    try {
+      const res = await fetch(`${BACKEND}/generate-pdf`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ takeoffData: results.takeoffData }),
+      });
+      if (!res.ok) throw new Error("PDF generation failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `BPS_Takeoff_Verified_${(results.projName || "Project").replace(/\s+/g, "_")}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert("PDF export failed: " + err.message);
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
   // Compute summary
   const summary = results ? (() => {
     const t = {};
@@ -301,6 +327,11 @@ export default function BPSEstimator() {
           {phase === "done" && (
             <button onClick={exportExcel} style={{ padding: "0.8rem", background: "transparent", color: "#5aaa40", border: "1px solid #3a7a20", borderRadius: 3, fontSize: "0.72rem", fontFamily: "inherit", fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer" }}>
               ↓  Export to Excel
+            </button>
+          )}
+          {phase === "done" && (
+            <button onClick={exportPDF} disabled={pdfLoading} style={{ padding: "0.8rem", background: "transparent", color: pdfLoading ? "#3a5a8a" : "#5a8aaa", border: "1px solid " + (pdfLoading ? "#2a3a5a" : "#3a6a8a"), borderRadius: 3, fontSize: "0.72rem", fontFamily: "inherit", fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", cursor: pdfLoading ? "not-allowed" : "pointer" }}>
+              {pdfLoading ? "⏳  Generating PDF..." : "↓  Export Verified PDF"}
             </button>
           )}
 
