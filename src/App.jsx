@@ -223,7 +223,7 @@ export default function BPSEstimator() {
     if (!results) return;
     setPdfLoading(true);
     try {
-      const res = await fetch(`${BACKEND}/evidence-pdf`);
+      const res = await fetch(`${BACKEND}/evidence-pdf`, {   method: "POST",   headers: { "Content-Type": "application/json" },   body: JSON.stringify({}), });
       if (!res.ok) throw new Error("PDF not ready");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
