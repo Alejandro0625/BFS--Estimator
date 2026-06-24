@@ -223,17 +223,13 @@ export default function BPSEstimator() {
     if (!results) return;
     setPdfLoading(true);
     try {
-      const res = await fetch(`${BACKEND}/generate-pdf`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ takeoffData: results.takeoffData }),
-      });
-      if (!res.ok) throw new Error("PDF generation failed");
+      const res = await fetch(`${BACKEND}/evidence-pdf`);
+      if (!res.ok) throw new Error("PDF not ready");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `BPS_Takeoff_Verified_${(results.projName || "Project").replace(/\s+/g, "_")}.pdf`;
+      a.download = `BPS_Takeoff_Evidence_${(results.projName || "Project").replace(/\s+/g, "_")}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
