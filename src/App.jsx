@@ -562,6 +562,12 @@ export default function BFSEstimator() {
     const wb=buildExcel(results.projName||"Project",mats,{wastePct:pricing.wastePct,marginPct:pricing.marginPct});
     XLSX.writeFile(wb,"BFS_Bid_"+(results.projName||"Project").replace(/\s+/g,"_")+".xlsx");
   };
+  // ── Pre-bid reliability checks ──
+  const reviewElevs = (results?.takeoffData||[]).filter(e=>(e.zones||[]).some(z=>(z.netArea||0)>0));
+  const defaultScaleN = reviewElevs.filter(e=>e.scaleSource==="default" || (!e.verifiedScale && !e.scale)).length;
+  const scaleWarnN = reviewElevs.filter(e=>e.expectedFacadeSF && (e.zones||[]).reduce((s,z)=>s+(z.netArea||0),0) > e.expectedFacadeSF*1.4).length;
+  const hasSchedule = !!(results?.scheduleData?.total_opening_sf>0);
+  const reviewOk = reviewElevs.length>0 && defaultScaleN===0 && scaleWarnN===0;
   const phaseStep={idle:0,running:1,filtering:1,legend:2,analyzing:3,done:4,error:0}[phase]||0;
   const isRunning=!["idle","done","error"].includes(phase);
   const logColor={ok:"#22C55E",warn:"#F59E0B",error:"#EF4444",success:"#22C55E",dim:"#94A3B8",info:"#64748B"};
@@ -705,6 +711,24 @@ export default function BFSEstimator() {
               <div style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"0.3rem"}}>Project</div>
               <div style={{fontSize:"0.8rem",fontWeight:600,color:"#0F172A",wordBreak:"break-all"}}>{results.projName}</div>
             </div>
+
+            {/* Pre-bid reliability check */}
+            {reviewElevs.length>0&&(
+              <div style={{padding:"0.75rem",background:reviewOk?"#F0FDF4":"#FFFBEB",borderRadius:8,border:"1px solid "+(reviewOk?"#BBF7D0":"#FDE68A")}}>
+                <div style={{fontSize:"0.6rem",color:reviewOk?"#15803D":"#B45309",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"0.45rem"}}>{reviewOk?"✓ Checks passed":"⚠ Check before bidding"}</div>
+                <div style={{display:"flex",flexDirection:"column",gap:"0.32rem",fontSize:"0.64rem",color:"#475569",lineHeight:1.4}}>
+                  <div>{reviewElevs.length} elevation{reviewElevs.length!==1?"s":""} measured</div>
+                  {defaultScaleN>0
+                    ? <div style={{color:"#B45309"}}>⚠ {defaultScaleN} used a default scale — open Interactive → Calibrate to confirm</div>
+                    : <div style={{color:"#15803D"}}>✓ Scale read on every elevation</div>}
+                  {scaleWarnN>0&&<div style={{color:"#B45309"}}>⚠ {scaleWarnN} measured bigger than the building face — likely a scale error</div>}
+                  {hasSchedule
+                    ? <div style={{color:"#15803D"}}>✓ Window/door openings exact (from schedule)</div>
+                    : <div style={{color:"#92855B"}}>• Openings estimated (no schedule found)</div>}
+                  <div style={{color:"#64748B"}}>• Review shapes in Edit Surfaces before exporting</div>
+                </div>
+              </div>
+            )}
 
             {/* Summary stats */}
             {summaryData&&Object.keys(summaryData).length>0&&(
