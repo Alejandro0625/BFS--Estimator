@@ -474,6 +474,7 @@ export default function BFSEstimator() {
   const [dragOver, setDragOver] = useState(false);
   const [pricing, setPricing] = useState({ rates:{}, wastePct:15, marginPct:20 });
   const [assignments, setAssignments] = useState({});
+  const [savedBids, setSavedBids] = useState([]);
   const fileRef  = useRef();
   const logRef   = useRef();
   const pollRef  = useRef(null);
@@ -481,6 +482,14 @@ export default function BFSEstimator() {
 
   useEffect(()=>{ if(logRef.current) logRef.current.scrollTop=logRef.current.scrollHeight; },[log]);
   useEffect(()=>()=>{ if(pollRef.current) clearInterval(pollRef.current); },[]);
+
+  const refreshSaved = useCallback(()=>{
+    const out=[];
+    try{ for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k&&k.startsWith("bfs_bid_")){ try{ out.push(JSON.parse(localStorage.getItem(k))); }catch{} } } }catch{}
+    out.sort((a,b)=>(b.savedAt||0)-(a.savedAt||0));
+    setSavedBids(out);
+  },[]);
+  useEffect(()=>{ refreshSaved(); },[refreshSaved]);
 
   const handleFile = f => {
     if(f?.type==="application/pdf"){
@@ -542,6 +551,22 @@ export default function BFSEstimator() {
     finally{setPdfLoading(false);}
   };
 
+  const saveBid=()=>{
+    if(!results)return;
+    const id=results.jobId||String(Date.now());
+    const rec={ id, projName:results.projName, savedAt:Date.now(),
+      data:{ legend:results.legend, takeoffData:results.takeoffData, scheduleData:results.scheduleData||null, projName:results.projName, jobId:results.jobId },
+      assignments, pricing };
+    try{ localStorage.setItem("bfs_bid_"+id, JSON.stringify(rec)); refreshSaved(); }
+    catch(e){ alert("Could not save bid: "+e.message); }
+  };
+  const loadBid=rec=>{
+    setResults(rec.data); setAssignments(rec.assignments||{});
+    setPricing(rec.pricing||{rates:{},wastePct:15,marginPct:20});
+    setPhase("done"); setViewMode("table"); setFile(null);
+  };
+  const deleteBid=(id,ev)=>{ if(ev)ev.stopPropagation(); try{ localStorage.removeItem("bfs_bid_"+id); }catch{} refreshSaved(); };
+
   const summary=results?()=>{
     const t={};
     results.takeoffData.forEach(e=>(e.zones||[]).forEach(z=>{const k=z.category||"Other";if(!t[k])t[k]={net:0,adj:0,color:MAT_COLORS[k]||"#9CA3AF"};t[k].net+=z.netArea||0;t[k].adj+=(z.netArea||0)*1.15;}));
@@ -598,6 +623,7 @@ export default function BFSEstimator() {
           <div style={{display:"flex",gap:"0.5rem"}}>
             <button onClick={exportExcel} style={{padding:"0.45rem 1rem",background:"transparent",color:"rgba(255,255,255,0.7)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↓ Excel</button>
             <button onClick={exportPDF} disabled={pdfLoading} style={{padding:"0.45rem 1rem",background:BLUE,color:"#fff",border:"none",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↓ {pdfLoading?"Generating...":"Evidence PDF"}</button>
+            <button onClick={saveBid} style={{padding:"0.45rem 1rem",background:"transparent",color:"rgba(255,255,255,0.7)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>💾 Save</button>
             <button onClick={()=>{setFile(null);setPhase("idle");setResults(null);setLog([]);setAssignments({});}} style={{padding:"0.45rem 1rem",background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.6)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↺ New</button>
           </div>
         )}
@@ -699,6 +725,24 @@ export default function BFSEstimator() {
                 {["Elevations","Soffits","Returns","Excel Export","Evidence PDF"].map(tag=>(
                   <div key={tag} style={{padding:"0.3rem 0.75rem",borderRadius:20,background:"rgba(74,134,200,0.1)",border:"1px solid rgba(74,134,200,0.2)",fontSize:"0.68rem",color:"rgba(74,134,200,0.8)",fontWeight:500}}>{tag}</div>
                 ))}
+              </div>
+            )}
+
+            {/* Saved bids */}
+            {savedBids.length>0&&!isRunning&&(
+              <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"0.75rem 1rem"}}>
+                <div style={{fontSize:"0.58rem",letterSpacing:"0.12em",color:"rgba(255,255,255,0.3)",textTransform:"uppercase",fontWeight:600,marginBottom:"0.5rem"}}>Saved bids</div>
+                <div style={{display:"flex",flexDirection:"column",gap:"0.3rem"}}>
+                  {savedBids.slice(0,6).map(b=>(
+                    <div key={b.id} onClick={()=>loadBid(b)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0.4rem 0.6rem",borderRadius:6,background:"rgba(255,255,255,0.04)",cursor:"pointer"}} onMouseEnter={e=>e.currentTarget.style.background="rgba(74,134,200,0.12)"} onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}>
+                      <span style={{fontSize:"0.72rem",color:"rgba(255,255,255,0.8)",fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{b.projName||"Project"}</span>
+                      <span style={{display:"flex",alignItems:"center",gap:"0.6rem",flexShrink:0}}>
+                        <span style={{fontSize:"0.62rem",color:"rgba(255,255,255,0.3)"}}>{new Date(b.savedAt).toLocaleDateString()}</span>
+                        <span onClick={e=>deleteBid(b.id,e)} style={{fontSize:"0.85rem",color:"rgba(255,255,255,0.3)",cursor:"pointer"}}>×</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
