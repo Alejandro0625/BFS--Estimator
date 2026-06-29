@@ -306,7 +306,7 @@ export default function BFSEstimator() {
         if(data.phase)setPhase(data.phase);
         if(data.status==="done"){
           clearInterval(pollRef.current);
-          setResults({legend:data.legend||[],takeoffData:data.takeoffData||[],projName:file?.name?.replace(".pdf","")||"Project",jobId:id});
+          setResults({legend:data.legend||[],takeoffData:data.takeoffData||[],scheduleData:data.scheduleData||null,projName:file?.name?.replace(".pdf","")||"Project",jobId:id});
           setPhase("done");setProgress({label:"Complete",pct:100});
         }else if(data.status==="error"){clearInterval(pollRef.current);setErrMsg(data.error||"Unknown error");setPhase("error");}
       }catch(e){console.log("poll",e.message);}
@@ -514,6 +514,17 @@ export default function BFSEstimator() {
                     <span style={{fontSize:"0.68rem",color:BLUE_DARK,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em"}}>Total</span>
                     <span style={{fontSize:"0.85rem",fontWeight:800,color:BLUE}}>{Math.round(grandAdj).toLocaleString()} SF</span>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Openings from schedule */}
+            {results.scheduleData&&results.scheduleData.total_opening_sf>0&&(
+              <div>
+                <div style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"0.6rem"}}>Openings · Schedule</div>
+                <div style={{padding:"0.6rem 0.75rem",background:"#FFFBEB",borderRadius:8,border:"1px solid #FDE68A"}}>
+                  <div style={{fontSize:"1.05rem",fontWeight:800,color:"#92400E"}}>{Math.round(results.scheduleData.total_opening_sf).toLocaleString()} <span style={{fontSize:"0.62rem",fontWeight:400}}>SF</span></div>
+                  <div style={{fontSize:"0.6rem",color:"#B45309",marginTop:2}}>{results.scheduleData.windows.length} window type{results.scheduleData.windows.length!==1?"s":""} · {results.scheduleData.doors.length} door type{results.scheduleData.doors.length!==1?"s":""} · exact from schedule</div>
                 </div>
               </div>
             )}
