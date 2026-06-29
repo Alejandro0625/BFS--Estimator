@@ -671,6 +671,13 @@ export default function BFSEstimator() {
               <div style={{fontSize:"0.7rem",letterSpacing:"0.2em",color:BLUE,textTransform:"uppercase",fontWeight:600,marginBottom:"0.75rem"}}>Boston Facade Systems</div>
               <h1 style={{fontSize:"2.25rem",fontWeight:800,color:"#fff",margin:0,letterSpacing:"-0.03em",lineHeight:1.1}}>AI Panel Estimator</h1>
               <p style={{fontSize:"0.9rem",color:"rgba(255,255,255,0.35)",marginTop:"0.75rem",lineHeight:1.6}}>Upload your blueprint PDF and get a full material takeoff<br/>with SF breakdown by elevation in seconds.</p>
+              <div style={{display:"flex",justifyContent:"center",gap:"1.1rem",marginTop:"1rem",flexWrap:"wrap"}}>
+                {["Measured from drawing geometry","Verified scale","Bid-ready Excel"].map(t=>(
+                  <div key={t} style={{display:"flex",alignItems:"center",gap:"0.35rem",fontSize:"0.66rem",color:"rgba(255,255,255,0.5)"}}>
+                    <span style={{color:"#4ADE80",fontWeight:700}}>✓</span>{t}
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* Drop zone */}
@@ -867,6 +874,11 @@ export default function BFSEstimator() {
             <div style={{display:"flex",flexDirection:"column",gap:"0.4rem"}}>
               <button onClick={exportExcel} style={{padding:"0.6rem",background:"#fff",color:BLUE,border:"1.5px solid "+BLUE,borderRadius:7,fontSize:"0.72rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>↓  Export Excel</button>
               <button onClick={exportPDF} disabled={pdfLoading} style={{padding:"0.6rem",background:"#F8FAFC",color:pdfLoading?"#9CA3AF":"#64748B",border:"1.5px solid #E2E8F0",borderRadius:7,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:pdfLoading?"not-allowed":"pointer"}}>↓  {pdfLoading?"Generating...":"Evidence PDF"}</button>
+            </div>
+
+            {/* Measurement basis — builds confidence in the SF */}
+            <div style={{padding:"0.6rem 0.7rem",background:"#F8FAFC",borderRadius:8,border:"1px solid #EEF2F7"}}>
+              <div style={{fontSize:"0.58rem",color:"#94A3B8",lineHeight:1.55}}><span style={{color:"#475569",fontWeight:700}}>How SF is measured:</span> computed from the drawing's vector geometry at the verified drawing scale — not visual guesses. Use <b>Calibrate</b> on any sheet for exact, defensible numbers.</div>
             </div>
 
             {/* Log */}
