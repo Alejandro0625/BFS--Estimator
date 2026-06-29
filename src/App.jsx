@@ -335,7 +335,7 @@ export default function BFSEstimator() {
     const t={};
     results.takeoffData.forEach(e=>(e.zones||[]).forEach(z=>{const k=z.category||"Other";if(!t[k])t[k]={net:0,adj:0,color:MAT_COLORS[k]||"#9CA3AF"};t[k].net+=z.netArea||0;t[k].adj+=(z.netArea||0)*1.15;}));
     return t;
-  }():null;
+  }:null;
   const summaryData = summary ? summary() : null;
   const grandAdj = summaryData ? Object.values(summaryData).reduce((s,v)=>s+v.adj,0) : 0;
   const phaseStep={idle:0,running:1,filtering:1,legend:2,analyzing:3,done:4,error:0}[phase]||0;
