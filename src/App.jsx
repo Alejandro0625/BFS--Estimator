@@ -110,6 +110,19 @@ const buildExcel = (projectName, legend, takeoffData) => {
   return wb;
 };
 
+// Distinct colors for auto-detected texture clusters
+// These are what the estimator SEES on screen — each texture gets one color
+const CLUSTER_UI_COLORS = [
+  "#4a9de0",  // blue
+  "#e08c30",  // orange
+  "#4dc47a",  // green
+  "#d44a9d",  // pink
+  "#c8c040",  // yellow
+  "#9a4ae0",  // purple
+  "#4ac8c0",  // teal
+  "#e04a4a",  // red
+];
+
 // ── Interactive Takeoff View ──────────────────────────────────────────────────
 function InteractiveView({ results, BACKEND }) {
   const [elevIdx, setElevIdx] = useState(0);
@@ -166,12 +179,26 @@ function InteractiveView({ results, BACKEND }) {
         suggestedName: z.materialName,
       }));
 
-  // Group zones by fill_color (Bluebeam uses color to distinguish materials)
+  // Group zones by texture cluster (cluster_id for CAD, fill_color for Bluebeam)
   const colorGroups = {};
   displayZones.forEach(z => {
-    const key = z.fill_color ? z.fill_color.join(",") : "none";
+    const key = z.cluster_id !== undefined
+      ? "c_" + z.cluster_id
+      : z.fill_color ? "f_" + z.fill_color.join(",") : "none";
     if (!colorGroups[key]) colorGroups[key] = [];
     colorGroups[key].push(z.id);
+  });
+
+  // Cluster summary: total SF per cluster (unassigned)
+  const clusterSummary = {};
+  displayZones.forEach(z => {
+    const key = z.cluster_id !== undefined ? z.cluster_id : -1;
+    if (!clusterSummary[key]) clusterSummary[key] = { total_sf: 0, count: 0, color: "#8888aa" };
+    clusterSummary[key].total_sf += z.area_sf || 0;
+    clusterSummary[key].count += 1;
+    clusterSummary[key].color = z.cluster_id !== undefined
+      ? CLUSTER_UI_COLORS[z.cluster_id % CLUSTER_UI_COLORS.length]
+      : "#8888aa";
   });
 
   const assignKey = id => elevIdx + ":" + id;
@@ -273,10 +300,16 @@ function InteractiveView({ results, BACKEND }) {
               >
                 {displayZones.map(zone => {
                   const a = getAssignment(zone.id);
-                  // Color priority: assigned material → Bluebeam fill color → default
+                  // Color priority:
+                  //   1. Assigned material color (confirmed by estimator)
+                  //   2. Cluster UI color (auto-detected texture group)
+                  //   3. Bluebeam fill color (if annotations present)
+                  //   4. Default gray
                   let color = "#8888aa";
                   if (a) {
                     color = MATERIAL_COLORS[a.category] || "#7a7a7a";
+                  } else if (zone.cluster_id !== undefined) {
+                    color = CLUSTER_UI_COLORS[zone.cluster_id % CLUSTER_UI_COLORS.length];
                   } else if (zone.fill_color && zone.fill_color.length === 3) {
                     const [r2, g2, b2] = zone.fill_color;
                     color = "rgb(" + Math.round(r2*255) + "," + Math.round(g2*255) + "," + Math.round(b2*255) + ")";
@@ -339,7 +372,9 @@ function InteractiveView({ results, BACKEND }) {
             {matList.map((mat, i) => {
               // Find all same-color zones (Bluebeam color group)
               const activeZoneData = displayZones.find(z => z.id === activeZone);
-              const colorKey = activeZoneData?.fill_color ? activeZoneData.fill_color.join(",") : null;
+              const colorKey = activeZoneData?.cluster_id !== undefined
+                ? "c_" + activeZoneData.cluster_id
+                : activeZoneData?.fill_color ? "f_" + activeZoneData.fill_color.join(",") : null;
               const sameColorZones = colorKey ? (colorGroups[colorKey] || []) : [];
               const canBulkAssign = sameColorZones.length > 1;
 
@@ -389,50 +424,80 @@ function InteractiveView({ results, BACKEND }) {
             </div>
           </>
         ) : (
-          /* SF totals when nothing selected */
+          /* Right panel — nothing selected: show detected textures + assigned SF */
           <>
-            <div style={{ fontSize: "0.58rem", letterSpacing: "0.3em", color: "#6a5a30", textTransform: "uppercase", marginBottom: "0.6rem" }}>
-              SF Totals
-            </div>
-
-            {Object.keys(totals).length === 0 ? (
-              <div style={{ fontSize: "0.65rem", color: "#3a3020", lineHeight: 1.7 }}>
-                Click any highlighted<br />zone to assign material.<br /><br />
-                <span style={{ color: "#4a3a18" }}>
-                  {useVectorMode
-                    ? "Surfaces are from PDF vector data — pixel-accurate."
-                    : "Surfaces from AI zone detection."}
-                </span>
-              </div>
-            ) : (
+            {/* Detected texture clusters */}
+            {Object.keys(clusterSummary).length > 0 && (
               <>
+                <div style={{ fontSize: "0.58rem", letterSpacing: "0.3em", color: "#6a5a30", textTransform: "uppercase", marginBottom: "0.4rem" }}>
+                  Detected Textures
+                </div>
+                <div style={{ fontSize: "0.6rem", color: "#4a3a18", marginBottom: "0.5rem" }}>
+                  Click a colored zone → assign material
+                </div>
+                {Object.entries(clusterSummary).map(([cid, info]) => {
+                  const groupKey = "c_" + cid;
+                  const zoneIds = colorGroups[groupKey] || [];
+                  const assigned = zoneIds.filter(id => getAssignment(id)).length;
+                  return (
+                    <div key={cid} style={{ marginBottom: "0.4rem", padding: "0.4rem 0.5rem", background: "#0e0d0a", borderRadius: 3, borderLeft: "3px solid " + info.color }}>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                          <div style={{ width: 10, height: 10, borderRadius: 2, background: info.color }} />
+                          <span style={{ fontSize: "0.62rem", color: "#8a7a50" }}>Texture {parseInt(cid)+1}</span>
+                        </div>
+                        <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#c0a840" }}>
+                          {Math.round(info.total_sf).toLocaleString()} SF
+                        </span>
+                      </div>
+                      <div style={{ fontSize: "0.58rem", color: assigned > 0 ? "#5a8030" : "#4a3a18", marginTop: 2 }}>
+                        {assigned > 0 ? "✓ " + assigned + "/" + info.count + " assigned" : info.count + " zone" + (info.count !== 1 ? "s" : "") + " · click to assign"}
+                      </div>
+                    </div>
+                  );
+                })}
+                <div style={{ height: "1px", background: "#1e1c14", margin: "0.6rem 0" }} />
+              </>
+            )}
+
+            {/* Confirmed SF totals */}
+            {Object.keys(totals).length > 0 && (
+              <>
+                <div style={{ fontSize: "0.58rem", letterSpacing: "0.3em", color: "#6a5a30", textTransform: "uppercase", marginBottom: "0.5rem" }}>
+                  Your Takeoff
+                </div>
                 {Object.entries(totals).map(([cat, sf]) => (
-                  <div key={cat} style={{ marginBottom: "0.6rem" }}>
+                  <div key={cat} style={{ marginBottom: "0.5rem" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
                       <div style={{ width: 8, height: 8, borderRadius: 2, background: MATERIAL_COLORS[cat] || "#7a7a7a" }} />
                       <span style={{ fontSize: "0.6rem", color: "#7a6a40" }}>{cat}</span>
                     </div>
                     <div style={{ fontSize: "1rem", fontWeight: 700, color: "#e0cc80", paddingLeft: "1rem" }}>
-                      {Math.round(sf).toLocaleString()} SF
+                      {Math.round(sf).toLocaleString()} SF net
                     </div>
                     <div style={{ fontSize: "0.6rem", color: "#5a4a20", paddingLeft: "1rem" }}>
-                      {Math.round(sf * 1.15).toLocaleString()} adj +15%
+                      {Math.round(sf * 1.15).toLocaleString()} SF +15%
                     </div>
                   </div>
                 ))}
-                <div style={{ marginTop: "0.75rem", paddingTop: "0.6rem", borderTop: "1px solid #1e1c14" }}>
+                <div style={{ marginTop: "0.6rem", paddingTop: "0.5rem", borderTop: "1px solid #1e1c14" }}>
                   <div style={{ fontSize: "0.6rem", color: "#5a8030" }}>Grand Total</div>
                   <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "#90e060" }}>
                     {Math.round(grandTotal * 1.15).toLocaleString()} SF
                   </div>
-                  <div style={{ fontSize: "0.58rem", color: "#3a5020" }}>adjusted +15%</div>
+                  <div style={{ fontSize: "0.58rem", color: "#3a5020" }}>adjusted +15% waste</div>
                 </div>
               </>
             )}
 
-            <div style={{ marginTop: "1rem", fontSize: "0.58rem", color: "#4a3a18", lineHeight: 1.6 }}>
-              {Object.keys(assignments).length} zones assigned<br />
-              across {elevations.length} elevations
+            {Object.keys(clusterSummary).length === 0 && Object.keys(totals).length === 0 && (
+              <div style={{ fontSize: "0.65rem", color: "#3a3020", lineHeight: 1.7 }}>
+                Click any colored zone on the elevation → assign material
+              </div>
+            )}
+
+            <div style={{ marginTop: "0.75rem", fontSize: "0.58rem", color: "#3a3018" }}>
+              {Object.keys(assignments).length} zones confirmed · {elevations.length} elevations
             </div>
           </>
         )}
