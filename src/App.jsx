@@ -252,6 +252,23 @@ function InteractiveView({ results, BACKEND }) {
   );
 }
 
+/* ── Drawing-intelligence chip (verified scale, dims, schedule openings) ── */
+const fmtDims = bd => {
+  if(!bd) return null;
+  const w=bd.overall_width_ft, h=bd.overall_height_ft;
+  if(w&&h) return `${w}′ W × ${h}′ H`;
+  if(w) return `${w}′ wide`;
+  if(h) return `${h}′ tall`;
+  return null;
+};
+function InfoChip({ label, value, sub, warn }) {
+  return <div style={{display:"flex",flexDirection:"column",padding:"0.3rem 0.6rem",background:"#fff",borderRadius:6,border:"1px solid "+(warn?"#FCD34D":"#DBEAFE")}}>
+    <span style={{fontSize:"0.52rem",letterSpacing:"0.07em",color:warn?"#B45309":"#64748B",textTransform:"uppercase",fontWeight:700}}>{label}</span>
+    <span style={{fontSize:"0.72rem",fontWeight:700,color:warn?"#92400E":"#0F172A",lineHeight:1.3}}>{value}</span>
+    {sub&&<span style={{fontSize:"0.55rem",color:warn?"#B45309":"#94A3B8"}}>{sub}</span>}
+  </div>;
+}
+
 /* ── Main App ── */
 export default function BFSEstimator() {
   const [file, setFile]       = useState(null);
@@ -552,11 +569,23 @@ export default function BFSEstimator() {
                 {results.takeoffData.map((elev,i)=>{
                   const total=(elev.zones||[]).reduce((s,z)=>s+(z.netArea||0),0);
                   if(total===0)return null;
+                  const dispScale=elev.verifiedScale||elev.scale;
+                  const scaleSub=elev.scaleSource==="claude_vision"?"read from drawing":elev.scaleSource==="easyocr"?"OCR · title block":elev.scaleSource==="default"?"default — verify!":null;
+                  const dims=fmtDims(elev.buildingDimensions);
+                  const overshoot=elev.expectedFacadeSF&&total>elev.expectedFacadeSF*1.4;
+                  const hasIntel=dispScale||dims||elev.expectedFacadeSF||elev.scheduleOpeningSF>0||overshoot;
                   return <div key={i} style={{background:"#fff",borderRadius:10,boxShadow:"0 1px 4px rgba(0,0,0,0.07)",border:"1px solid #F1F5F9",marginBottom:"1rem",overflow:"hidden"}}>
                     <div style={{padding:"0.65rem 1rem",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"1px solid #F1F5F9",background:"#FAFBFC"}}>
                       <span style={{fontSize:"0.85rem",fontWeight:700,color:"#0F172A"}}>{elev.title}</span>
-                      <span style={{fontSize:"0.65rem",color:"#94A3B8"}}>{elev.sheetRef}{elev.scale?" · "+elev.scale:""} · {Math.round(total).toLocaleString()} SF</span>
+                      <span style={{fontSize:"0.65rem",color:"#94A3B8"}}>{elev.sheetRef} · {Math.round(total).toLocaleString()} SF</span>
                     </div>
+                    {hasIntel&&<div style={{display:"flex",flexWrap:"wrap",gap:"0.5rem",padding:"0.6rem 1rem",background:"#F8FAFC",borderBottom:"1px solid #F1F5F9"}}>
+                      {dispScale&&<InfoChip label="Scale" value={dispScale} sub={scaleSub} warn={elev.scaleSource==="default"}/>}
+                      {dims&&<InfoChip label="Building" value={dims}/>}
+                      {elev.expectedFacadeSF&&<InfoChip label="Gross face" value={Math.round(elev.expectedFacadeSF).toLocaleString()+" SF"}/>}
+                      {elev.scheduleOpeningSF>0&&<InfoChip label="Openings · schedule" value={Math.round(elev.scheduleOpeningSF).toLocaleString()+" SF"}/>}
+                      {overshoot&&<InfoChip label="⚠ Check scale" value="Panel SF > building face" sub="possible scale error" warn={true}/>}
+                    </div>}
                     <table style={{width:"100%",borderCollapse:"collapse"}}>
                       <thead><tr style={{background:"#F8FAFC"}}>{["ID","Material","Category","Gross","Openings","Net SF","Adj +15%"].map(h=>(
                         <th key={h} style={{padding:"0.4rem 0.75rem",textAlign:["Gross","Openings","Net SF","Adj +15%"].includes(h)?"right":"left",fontSize:"0.6rem",fontWeight:600,color:"#94A3B8",textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1px solid #F1F5F9"}}>{h}</th>
