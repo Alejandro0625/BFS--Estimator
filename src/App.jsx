@@ -144,8 +144,9 @@ function InteractiveView({ results, BACKEND }) {
     setPageImage(BACKEND + "/page-image/" + results.jobId + "/" + pageNum);
   }, [elevIdx, pageNum, results.jobId, BACKEND]);
 
-  // Vector polygons if we have them; otherwise Claude bbox zones as rectangles
-  const useVectorMode = pagePolygons.length > 2;
+  // Bluebeam annotations → vector polygons → Claude bbox fallback
+  const polyMethod = pagePolygons[0]?.source || (pagePolygons.length > 0 ? "vector" : "box");
+  const useVectorMode = pagePolygons.length > 0;
   const displayZones = useVectorMode
     ? pagePolygons
     : (elev?.zones || []).map((z, i) => ({
@@ -159,10 +160,19 @@ function InteractiveView({ results, BACKEND }) {
         area_sf: z.netArea || 0,
         cx: (z.x0pct + z.x1pct) / 200,
         cy: (z.y0pct + z.y1pct) / 200,
+        source: "box",
         suggestedCategory: z.category,
         suggestedId: z.materialId,
         suggestedName: z.materialName,
       }));
+
+  // Group zones by fill_color (Bluebeam uses color to distinguish materials)
+  const colorGroups = {};
+  displayZones.forEach(z => {
+    const key = z.fill_color ? z.fill_color.join(",") : "none";
+    if (!colorGroups[key]) colorGroups[key] = [];
+    colorGroups[key].push(z.id);
+  });
 
   const assignKey = id => elevIdx + ":" + id;
   const getAssignment = id => assignments[assignKey(id)];
@@ -235,9 +245,11 @@ function InteractiveView({ results, BACKEND }) {
       {/* ── Center: image + SVG overlay ── */}
       <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", alignItems: "center", padding: "1rem", gap: "0.5rem" }}>
         <div style={{ fontSize: "0.65rem", color: "#5a4a20", alignSelf: "flex-start" }}>
-          {useVectorMode
-            ? "Vector mode — " + displayZones.length + " surfaces detected from PDF geometry"
-            : "Box mode — click zones identified by AI · Upload a CAD PDF for vector precision"}
+          {polyMethod === "bluebeam"
+            ? "📐 Bluebeam polygons — " + displayZones.length + " surfaces from estimator markup · SF values exact"
+            : polyMethod === "vector"
+            ? "📏 Vector mode — " + displayZones.length + " surfaces from PDF geometry"
+            : "AI box mode — upload a Bluebeam-marked PDF for exact shapes"}
         </div>
 
         {!pageImage ? (
@@ -261,33 +273,41 @@ function InteractiveView({ results, BACKEND }) {
               >
                 {displayZones.map(zone => {
                   const a = getAssignment(zone.id);
-                  const color = a ? (MATERIAL_COLORS[a.category] || "#7a7a7a") : "#8888aa";
+                  // Color priority: assigned material → Bluebeam fill color → default
+                  let color = "#8888aa";
+                  if (a) {
+                    color = MATERIAL_COLORS[a.category] || "#7a7a7a";
+                  } else if (zone.fill_color && zone.fill_color.length === 3) {
+                    const [r2, g2, b2] = zone.fill_color;
+                    color = "rgb(" + Math.round(r2*255) + "," + Math.round(g2*255) + "," + Math.round(b2*255) + ")";
+                  }
                   const isActive = activeZone === zone.id;
                   const pts = toSVGPoints(zone.points);
                   const labelX = zone.cx * pageDims.width;
                   const labelY = zone.cy * pageDims.height;
+                  const showLabel = a || isActive || zone.source === "bluebeam";
                   return (
                     <g key={zone.id} style={{ cursor: "pointer" }}
                       onClick={e => { e.stopPropagation(); setActiveZone(isActive ? null : zone.id); }}>
                       <polygon
                         points={pts}
                         fill={color}
-                        fillOpacity={isActive ? 0.6 : a ? 0.38 : 0.18}
-                        stroke={color}
-                        strokeWidth={isActive ? 3 : a ? 2 : 1}
-                        strokeOpacity={isActive ? 1 : 0.8}
+                        fillOpacity={isActive ? 0.65 : zone.source === "bluebeam" ? 0.45 : a ? 0.38 : 0.18}
+                        stroke={isActive ? "#ffffff" : color}
+                        strokeWidth={isActive ? 3 : zone.source === "bluebeam" ? 2 : a ? 2 : 1}
+                        strokeOpacity={isActive ? 1 : 0.9}
                       />
-                      {(a || isActive) && (
+                      {showLabel && (
                         <>
                           <rect
-                            x={labelX - 26} y={labelY - 9}
-                            width={52} height={17}
-                            fill="rgba(0,0,0,0.65)" rx={2}
+                            x={labelX - 30} y={labelY - 9}
+                            width={60} height={17}
+                            fill="rgba(0,0,0,0.7)" rx={2}
                           />
                           <text
                             x={labelX} y={labelY + 2}
                             textAnchor="middle" dominantBaseline="middle"
-                            fill="white" fontSize={pageDims.width / 70}
+                            fill="white" fontSize={pageDims.width / 75}
                             fontFamily="Arial" fontWeight="bold"
                           >
                             {Math.round(zone.area_sf)} SF
@@ -316,21 +336,46 @@ function InteractiveView({ results, BACKEND }) {
               {Math.round(displayZones.find(z => z.id === activeZone)?.area_sf || 0)} SF selected
             </div>
 
-            {matList.map((mat, i) => (
-              <div key={i} onClick={() => assignZone(activeZone, mat)}
-                style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.45rem 0.5rem", marginBottom: "0.25rem",
-                  cursor: "pointer", background: "#141208", borderRadius: 3,
-                  border: "1px solid #2a2618", transition: "border-color 0.1s" }}
-                onMouseEnter={e => e.currentTarget.style.borderColor = "#5a4a20"}
-                onMouseLeave={e => e.currentTarget.style.borderColor = "#2a2618"}>
-                <div style={{ width: 12, height: 12, borderRadius: 2, background: MATERIAL_COLORS[mat.category] || "#7a7a7a", flexShrink: 0 }} />
-                <div style={{ fontSize: "0.62rem", color: "#a09060", lineHeight: 1.3 }}>
-                  <span style={{ color: "#b89020" }}>{mat.id}</span>
-                  <br />
-                  <span>{mat.name || mat.category}</span>
+            {matList.map((mat, i) => {
+              // Find all same-color zones (Bluebeam color group)
+              const activeZoneData = displayZones.find(z => z.id === activeZone);
+              const colorKey = activeZoneData?.fill_color ? activeZoneData.fill_color.join(",") : null;
+              const sameColorZones = colorKey ? (colorGroups[colorKey] || []) : [];
+              const canBulkAssign = sameColorZones.length > 1;
+
+              return (
+                <div key={i} style={{ marginBottom: "0.35rem" }}>
+                  <div onClick={() => assignZone(activeZone, mat)}
+                    style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.45rem 0.5rem",
+                      cursor: "pointer", background: "#141208", borderRadius: canBulkAssign ? "3px 3px 0 0" : 3,
+                      border: "1px solid #2a2618", borderBottom: canBulkAssign ? "none" : "1px solid #2a2618" }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = "#5a4a20"}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = "#2a2618"}>
+                    <div style={{ width: 12, height: 12, borderRadius: 2, background: MATERIAL_COLORS[mat.category] || "#7a7a7a", flexShrink: 0 }} />
+                    <div style={{ fontSize: "0.62rem", color: "#a09060", lineHeight: 1.3, flex: 1 }}>
+                      <span style={{ color: "#b89020" }}>{mat.id}</span>
+                      {" "}<span>{mat.name || mat.category}</span>
+                    </div>
+                  </div>
+                  {canBulkAssign && (
+                    <div onClick={() => {
+                      sameColorZones.forEach(zid => {
+                        const z = displayZones.find(dz => dz.id === zid);
+                        setAssignments(prev => ({ ...prev, [elevIdx + ":" + zid]: { ...mat, area_sf: z?.area_sf || 0 } }));
+                      });
+                      setActiveZone(null);
+                    }}
+                      style={{ padding: "0.3rem 0.5rem", background: "#0e0d0a", cursor: "pointer",
+                        fontSize: "0.58rem", color: "#7a9a40", border: "1px solid #2a2618",
+                        borderTop: "1px solid #1a1810", borderRadius: "0 0 3px 3px" }}
+                      onMouseEnter={e => e.currentTarget.style.color = "#a0c060"}
+                      onMouseLeave={e => e.currentTarget.style.color = "#7a9a40"}>
+                      ↳ Assign all {sameColorZones.length} same-color zones
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             {getAssignment(activeZone) && (
               <div onClick={() => removeAssignment(activeZone)}
