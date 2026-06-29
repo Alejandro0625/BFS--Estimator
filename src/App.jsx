@@ -30,6 +30,24 @@ const polyAreaSF = (points, ftPerInch, W, H) => {
   return (Math.abs(a) / 2) * ftPerPt * ftPerPt;
 };
 
+/* Linear footage by edge class: top=coping/parapet, bottom=base/starter, vertical=corners/trim */
+const linearFt = (zones, ftPerInch, W, H) => {
+  const ftPerPt = ftPerInch / 72;
+  let top=0, bottom=0, vert=0;
+  (zones||[]).forEach(z=>{
+    const pts=z.points; if(!pts||pts.length<3) return;
+    const ys=pts.map(p=>p[1]); const ymin=Math.min(...ys), ymax=Math.max(...ys); const yr=(ymax-ymin)||1;
+    for(let i=0;i<pts.length;i++){
+      const [x1,y1]=pts[i], [x2,y2]=pts[(i+1)%pts.length];
+      const dx=(x2-x1)*W, dy=(y2-y1)*H;
+      const lenFt=Math.sqrt(dx*dx+dy*dy)*ftPerPt;
+      if(Math.abs(dx)>=Math.abs(dy)){ if(((y1+y2)/2-ymin)/yr < 0.4) top+=lenFt; else bottom+=lenFt; }
+      else vert+=lenFt;
+    }
+  });
+  return { top:Math.round(top), bottom:Math.round(bottom), vert:Math.round(vert), total:Math.round(top+bottom+vert) };
+};
+
 /* ── Excel builder ── */
 const buildExcel = (projectName, materials) => {
   const wb = XLSX.utils.book_new();
@@ -145,6 +163,17 @@ function InteractiveView({ results, BACKEND }) {
         ? {...z, area_sf: polyAreaSF(z.points, calibFt, pageDims.width, pageDims.height)}
         : z)
     : rawZones;
+  // Effective scale: calibrated value, else back it out from a zone's known SF + geometry
+  const effFtPerInch = calibFt || (()=>{
+    for(const z of rawZones){
+      if(z.area_sf>0 && z.points?.length>=3){
+        const shoePts = polyAreaSF(z.points, 72, pageDims.width, pageDims.height);
+        if(shoePts>0) return 72*Math.sqrt(z.area_sf/shoePts);
+      }
+    }
+    return 8;
+  })();
+  const lf = linearFt(displayZones, effFtPerInch, pageDims.width, pageDims.height);
   const colorGroups = {};
   displayZones.forEach(z=>{const k=z.cluster_id!==undefined?"c_"+z.cluster_id:z.fill_color?"f_"+z.fill_color.join(","):"none";if(!colorGroups[k])colorGroups[k]=[];colorGroups[k].push(z.id);});
   const clusterSummary = {};
@@ -283,6 +312,21 @@ function InteractiveView({ results, BACKEND }) {
                   <div style={{fontSize:"0.6rem",color:assigned>0?"#4ADE80":"#475569",marginTop:3}}>{assigned>0?`✓ ${assigned}/${info.count} assigned`:`${info.count} zone${info.count!==1?"s":""}`}</div>
                 </div>;
               })}
+              <div style={{height:1,background:NAVY_LT,margin:"0.75rem 0"}}/>
+            </>}
+            {displayZones.length>0&&lf.total>0&&<>
+              <div style={{fontSize:"0.6rem",letterSpacing:"0.12em",color:"#64748B",textTransform:"uppercase",fontWeight:700,marginBottom:"0.4rem"}}>Linear (estimated)</div>
+              <div style={{fontSize:"0.58rem",color:"#475569",marginBottom:"0.5rem"}}>From surface edges{calibFt?" · calibrated scale":""} — refine on site</div>
+              {[["Coping / top",lf.top],["Base / starter",lf.bottom],["Corners / vert. trim",lf.vert]].map(([label,val])=>(
+                <div key={label} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0.35rem 0.6rem",background:NAVY,borderRadius:6,marginBottom:"0.3rem"}}>
+                  <span style={{fontSize:"0.62rem",color:"#94A3B8"}}>{label}</span>
+                  <span style={{fontSize:"0.72rem",fontWeight:700,color:"#E2E8F0"}}>{val.toLocaleString()} LF</span>
+                </div>
+              ))}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0.4rem 0.6rem",background:NAVY_LT,borderRadius:6}}>
+                <span style={{fontSize:"0.62rem",color:"#CBD5E1",fontWeight:700}}>Total perimeter</span>
+                <span style={{fontSize:"0.75rem",fontWeight:800,color:BLUE}}>{lf.total.toLocaleString()} LF</span>
+              </div>
               <div style={{height:1,background:NAVY_LT,margin:"0.75rem 0"}}/>
             </>}
             {Object.keys(totals).length>0&&<>
