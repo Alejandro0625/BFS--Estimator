@@ -18,6 +18,18 @@ const MAT_COLORS = {
 };
 const CLUSTER_COLORS = ["#3B82F6","#F97316","#22C55E","#EC4899","#EAB308","#8B5CF6","#14B8A6","#EF4444"];
 
+/* Shoelace area of a normalized polygon → square feet, given ft-per-paper-inch */
+const polyAreaSF = (points, ftPerInch, W, H) => {
+  if (!points || points.length < 3) return 0;
+  let a = 0;
+  for (let i = 0; i < points.length; i++) {
+    const [x1, y1] = points[i], [x2, y2] = points[(i + 1) % points.length];
+    a += (x1 * W) * (y2 * H) - (x2 * W) * (y1 * H);
+  }
+  const ftPerPt = ftPerInch / 72;
+  return (Math.abs(a) / 2) * ftPerPt * ftPerPt;
+};
+
 /* ── Excel builder ── */
 const buildExcel = (projectName, materials) => {
   const wb = XLSX.utils.book_new();
@@ -102,14 +114,19 @@ function InteractiveView({ results, BACKEND }) {
   const [assignments, setAssignments] = useState({});
   const [activeZone, setActiveZone] = useState(null);
   const [imgNaturalSize, setImgNaturalSize] = useState({ w:1, h:1 });
+  const [calibMode, setCalibMode] = useState(false);
+  const [calibPts, setCalibPts] = useState([]);
+  const [calibFt, setCalibFt] = useState(null);
+  const [realDist, setRealDist] = useState("");
   const imgRef = useRef();
+  const svgRef = useRef();
   const elevations = results.takeoffData.filter(e => e.pageNumber);
   const elev = elevations[elevIdx];
   const pageNum = elev?.pageNumber;
 
   useEffect(() => {
     if (!pageNum || !results.jobId) return;
-    setPageImage(null); setImgLoaded(false); setPagePolygons([]); setActiveZone(null);
+    setPageImage(null); setImgLoaded(false); setPagePolygons([]); setActiveZone(null); setCalibMode(false); setCalibPts([]);
     fetch(BACKEND+"/polygons/"+results.jobId+"/"+pageNum)
       .then(r=>r.ok?r.json():{polygons:[],width:612,height:792})
       .then(d=>{setPagePolygons(d.polygons||[]);setPageDims({width:d.width||612,height:d.height||792});})
@@ -118,10 +135,16 @@ function InteractiveView({ results, BACKEND }) {
   }, [elevIdx, pageNum, results.jobId, BACKEND]);
 
   const polyMethod = pagePolygons[0]?.source||(pagePolygons.length>0?"vector":"box");
-  const displayZones = pagePolygons.length>0 ? pagePolygons : (elev?.zones||[]).map((z,i)=>({
+  const rawZones = pagePolygons.length>0 ? pagePolygons : (elev?.zones||[]).map((z,i)=>({
     id:i,points:[[z.x0pct/100,z.y0pct/100],[z.x1pct/100,z.y0pct/100],[z.x1pct/100,z.y1pct/100],[z.x0pct/100,z.y1pct/100]],
     area_sf:z.netArea||0,cx:(z.x0pct+z.x1pct)/200,cy:(z.y0pct+z.y1pct)/200,source:"box",
   }));
+  // When the user calibrates the scale, recompute SF from polygon geometry (real polygons only)
+  const displayZones = calibFt
+    ? rawZones.map(z => (z.source && z.source!=="box")
+        ? {...z, area_sf: polyAreaSF(z.points, calibFt, pageDims.width, pageDims.height)}
+        : z)
+    : rawZones;
   const colorGroups = {};
   displayZones.forEach(z=>{const k=z.cluster_id!==undefined?"c_"+z.cluster_id:z.fill_color?"f_"+z.fill_color.join(","):"none";if(!colorGroups[k])colorGroups[k]=[];colorGroups[k].push(z.id);});
   const clusterSummary = {};
@@ -146,6 +169,28 @@ function InteractiveView({ results, BACKEND }) {
   const svgW=imgRef.current?.offsetWidth||imgNaturalSize.w;
   const svgH=imgRef.current?.offsetHeight||imgNaturalSize.h;
   const toSVGPoints=pts=>pts.map(([nx,ny])=>`${(nx*pageDims.width).toFixed(1)},${(ny*pageDims.height).toFixed(1)}`).join(" ");
+  const getSvgPoint=evt=>{
+    const svg=svgRef.current; if(!svg) return null;
+    const pt=svg.createSVGPoint(); pt.x=evt.clientX; pt.y=evt.clientY;
+    const m=svg.getScreenCTM(); if(!m) return null;
+    const p=pt.matrixTransform(m.inverse());
+    return { x:p.x/pageDims.width, y:p.y/pageDims.height };
+  };
+  const handleSvgClick=evt=>{
+    if(!calibMode) return;
+    const p=getSvgPoint(evt); if(!p) return;
+    setCalibPts(prev=>prev.length>=2?[p]:[...prev,p]);
+  };
+  const applyCalibration=()=>{
+    if(calibPts.length<2) return;
+    const [a,b]=calibPts;
+    const dx=(b.x-a.x)*pageDims.width, dy=(b.y-a.y)*pageDims.height;
+    const distPts=Math.sqrt(dx*dx+dy*dy);
+    const feet=parseFloat(realDist);
+    if(!feet||!distPts) return;
+    setCalibFt(feet/(distPts/72));
+    setCalibMode(false); setCalibPts([]); setRealDist("");
+  };
   const matList=results.legend.length>0?results.legend:Object.keys(MAT_COLORS).map(cat=>({id:cat.substring(0,3).toUpperCase()+"-1",name:cat,category:cat}));
 
   return (
@@ -163,13 +208,22 @@ function InteractiveView({ results, BACKEND }) {
       </div>
       {/* Drawing */}
       <div style={{flex:1,overflow:"auto",display:"flex",flexDirection:"column",alignItems:"center",padding:"1rem",gap:"0.75rem"}}>
-        <div style={{alignSelf:"flex-start",fontSize:"0.65rem",color:"#64748B",background:NAVY_LT,padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid #2D5280"}}>
-          {polyMethod==="bluebeam"?`📐 Bluebeam — ${displayZones.length} surfaces`:polyMethod==="vector_cluster"||polyMethod==="vector"?`📏 Vector — ${displayZones.length} surfaces`:polyMethod==="claude_vision"?`🧠 AI Vision — ${displayZones.length} surfaces`:"No surfaces on this page"}
+        <div style={{alignSelf:"stretch",display:"flex",alignItems:"center",gap:"0.5rem",flexWrap:"wrap"}}>
+          <div style={{fontSize:"0.65rem",color:"#64748B",background:NAVY_LT,padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid #2D5280"}}>
+            {polyMethod==="bluebeam"?`📐 Bluebeam — ${displayZones.length} surfaces`:polyMethod==="vector_cluster"||polyMethod==="vector"?`📏 Vector — ${displayZones.length} surfaces`:polyMethod==="claude_vision"?`🧠 AI Vision — ${displayZones.length} surfaces`:"No surfaces on this page"}
+          </div>
+          <button onClick={()=>{setCalibMode(m=>!m);setCalibPts([]);}} style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid "+(calibMode?"#EF4444":"#2D5280"),background:calibMode?"#7F1D1D":NAVY_LT,color:calibMode?"#FCA5A5":"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>📏 {calibMode?(calibPts.length<2?`Click point ${calibPts.length+1} of 2`:"2 points set"):"Calibrate scale"}</button>
+          {calibFt&&!calibMode&&<div style={{fontSize:"0.62rem",padding:"0.3rem 0.6rem",borderRadius:20,background:"#064E3B",color:"#6EE7B7",border:"1px solid #065F46"}}>✓ Calibrated · {calibFt.toFixed(2)} ft/in<span onClick={()=>setCalibFt(null)} style={{cursor:"pointer",textDecoration:"underline",marginLeft:6}}>reset</span></div>}
+          {calibMode&&calibPts.length===2&&<div style={{display:"flex",alignItems:"center",gap:"0.35rem",fontSize:"0.65rem",color:"#CBD5E1"}}>
+            <span>Real distance (ft):</span>
+            <input value={realDist} onChange={e=>setRealDist(e.target.value)} onKeyDown={e=>e.key==="Enter"&&applyCalibration()} placeholder="e.g. 20" style={{width:64,padding:"0.25rem 0.4rem",borderRadius:5,border:"1px solid #2D5280",background:NAVY,color:"#E2E8F0",fontSize:"0.65rem",fontFamily:"inherit"}}/>
+            <button onClick={applyCalibration} style={{fontSize:"0.65rem",padding:"0.25rem 0.6rem",borderRadius:5,border:"none",background:BLUE,color:"#fff",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>Apply</button>
+          </div>}
         </div>
         {!pageImage?<div style={{color:"#475569",fontSize:"0.8rem",marginTop:"4rem"}}>Loading elevation...</div>:
           <div style={{position:"relative",display:"inline-block",maxWidth:"100%"}}>
             <img ref={imgRef} src={pageImage} alt={elev?.title} onLoad={e=>{setImgNaturalSize({w:e.target.naturalWidth,h:e.target.naturalHeight});setImgLoaded(true);}} style={{display:"block",maxWidth:"100%",maxHeight:"calc(100vh - 180px)",objectFit:"contain",borderRadius:6,border:"1px solid "+NAVY_LT}}/>
-            {imgLoaded&&<svg viewBox={`0 0 ${pageDims.width} ${pageDims.height}`} style={{position:"absolute",top:0,left:0,width:svgW,height:svgH,overflow:"visible"}}>
+            {imgLoaded&&<svg ref={svgRef} onClick={handleSvgClick} viewBox={`0 0 ${pageDims.width} ${pageDims.height}`} style={{position:"absolute",top:0,left:0,width:svgW,height:svgH,overflow:"visible",cursor:calibMode?"crosshair":"default"}}>
               {displayZones.map(zone=>{
                 const a=getAssignment(zone.id);
                 let color="#94A3B8";
@@ -180,11 +234,13 @@ function InteractiveView({ results, BACKEND }) {
                 const pts=toSVGPoints(zone.points);
                 const lx=zone.cx*pageDims.width,ly=zone.cy*pageDims.height;
                 const showLabel=a||isActive||zone.source==="bluebeam"||zone.source==="claude_vision";
-                return <g key={zone.id} style={{cursor:"pointer"}} onClick={e=>{e.stopPropagation();setActiveZone(isActive?null:zone.id);}}>
+                return <g key={zone.id} style={{cursor:calibMode?"crosshair":"pointer"}} onClick={e=>{if(calibMode)return;e.stopPropagation();setActiveZone(isActive?null:zone.id);}}>
                   <polygon points={pts} fill={color} fillOpacity={isActive?0.65:zone.source==="bluebeam"?0.45:a?0.38:0.2} stroke={isActive?"#fff":color} strokeWidth={isActive?2.5:1.5} strokeOpacity={0.9}/>
                   {showLabel&&<><rect x={lx-32} y={ly-9} width={64} height={18} fill="rgba(0,0,0,0.8)" rx={4}/><text x={lx} y={ly+2} textAnchor="middle" dominantBaseline="middle" fill="white" fontSize={pageDims.width/75} fontFamily="Inter,Arial" fontWeight="bold">{zone.source==="claude_vision"&&!a?zone.material_type:Math.round(zone.area_sf)+" SF"}</text></>}
                 </g>;
               })}
+              {calibPts.length===2&&<line x1={calibPts[0].x*pageDims.width} y1={calibPts[0].y*pageDims.height} x2={calibPts[1].x*pageDims.width} y2={calibPts[1].y*pageDims.height} stroke="#EF4444" strokeWidth={pageDims.width/350} strokeDasharray={pageDims.width/90}/>}
+              {calibPts.map((p,i)=><circle key={"cp"+i} cx={p.x*pageDims.width} cy={p.y*pageDims.height} r={pageDims.width/110} fill="#EF4444" stroke="#fff" strokeWidth={pageDims.width/600}/>)}
             </svg>}
           </div>
         }
