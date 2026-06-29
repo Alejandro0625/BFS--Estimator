@@ -26,6 +26,12 @@ const DEFAULT_RATES = {
   "Soffit Panel":28,"Return/Trim":30,"Other":25,
 };
 
+/* Cross-run memory (per browser): remember hatch→material so repeat drawings get easier each time */
+const LEARN_KEY="bfs_learn_hatch_v1";
+const loadLearned=()=>{ try{ return JSON.parse(localStorage.getItem(LEARN_KEY))||{}; }catch{ return {}; } };
+const saveLearned=m=>{ try{ localStorage.setItem(LEARN_KEY, JSON.stringify(m)); }catch{} };
+const hatchSig=z=> z&&z.fill_color&&z.fill_color.length ? "fc:"+z.fill_color.map(c=>Math.round(c*255)).join(",") : (z&&z.material_type?"mt:"+z.material_type:null);
+
 /* Shoelace area of a normalized polygon → square feet, given ft-per-paper-inch */
 const polyAreaSF = (points, ftPerInch, W, H) => {
   if (!points || points.length < 3) return 0;
@@ -195,8 +201,12 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments }) {
   const selectedIds = activeGroup ? (colorGroups[activeGroup]||[]) : [];
   const selectedZones = displayZones.filter(z=>selectedIds.includes(z.id));
   const selectedSF = selectedZones.reduce((s,z)=>s+(z.area_sf||0),0);
+  const groupSig = hatchSig(selectedZones.find(z=>hatchSig(z)));
+  const learnedMat = groupSig ? loadLearned()[groupSig] : null;
   const assignGroup = mat => {
     setAssignments(prev=>{const n={...prev};selectedZones.forEach(z=>{n[assignKey(z.id)]={...mat,area_sf:z.area_sf||0};});return n;});
+    const sig=hatchSig(selectedZones.find(z=>hatchSig(z)));
+    if(sig){ const m=loadLearned(); m[sig]={category:mat.category,materialName:mat.name||mat.category,id:mat.id,at:Date.now()}; saveLearned(m); }
     setActiveGroup(null);
   };
   const removeGroup = () => { setAssignments(prev=>{const n={...prev};selectedIds.forEach(id=>delete n[assignKey(id)]);return n;}); };
@@ -298,6 +308,10 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments }) {
               <div style={{fontSize:"1.6rem",fontWeight:800,color:"#fff",lineHeight:1.1}}>{Math.round(selectedSF).toLocaleString()} <span style={{fontSize:"0.7rem",fontWeight:400,color:"#94A3B8"}}>SF</span></div>
               <div style={{fontSize:"0.6rem",color:"#94A3B8",marginTop:3}}>{selectedZones.length} area{selectedZones.length!==1?"s":""} with this pattern</div>
             </div>
+            {learnedMat&&<div onClick={()=>assignGroup({id:learnedMat.id,name:learnedMat.materialName,category:learnedMat.category})} style={{display:"flex",alignItems:"center",gap:"0.5rem",padding:"0.5rem 0.65rem",cursor:"pointer",background:"#064E3B",borderRadius:6,border:"1px solid #10B981",marginBottom:"0.6rem"}}>
+              <span style={{fontSize:"0.85rem"}}>✨</span>
+              <div style={{fontSize:"0.63rem",color:"#A7F3D0",flex:1}}>From memory: this hatch was <b>{learnedMat.materialName}</b> — tap to apply</div>
+            </div>}
             <div style={{fontSize:"0.6rem",color:"#64748B",marginBottom:"0.4rem"}}>Tag this hatch as (optional):</div>
             {matList.map((mat,i)=>(
               <div key={i} onClick={()=>assignGroup(mat)} style={{display:"flex",alignItems:"center",gap:"0.5rem",padding:"0.5rem 0.65rem",cursor:"pointer",background:NAVY,borderRadius:6,border:"1px solid #2D5280",marginBottom:"0.35rem"}} onMouseEnter={e=>e.currentTarget.style.borderColor=BLUE} onMouseLeave={e=>e.currentTarget.style.borderColor="#2D5280"}>
@@ -493,6 +507,8 @@ export default function BFSEstimator() {
     setSavedBids(out);
   },[]);
   useEffect(()=>{ refreshSaved(); },[refreshSaved]);
+  useEffect(()=>{ try{ const p=JSON.parse(localStorage.getItem("bfs_pricing_v1")); if(p&&p.rates) setPricing(p); }catch{} },[]);
+  useEffect(()=>{ try{ localStorage.setItem("bfs_pricing_v1", JSON.stringify(pricing)); }catch{} },[pricing]);
 
   const handleFile = f => {
     if(f?.type==="application/pdf"){
