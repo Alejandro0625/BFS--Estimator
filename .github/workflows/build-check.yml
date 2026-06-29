@@ -1,0 +1,23 @@
+name: Build Check
+
+# Runs `vite build` on every push/PR to main so syntax errors are caught
+# here (in ~20s with the exact file:line) instead of failing silently on Vercel.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm install
+      - name: Build (catches syntax/import errors)
+        run: npm run build
