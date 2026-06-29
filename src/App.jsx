@@ -218,6 +218,36 @@ function InteractiveView({ results, BACKEND }) {
     setAssignments(prev => { const n = { ...prev }; delete n[k]; return n; });
   };
 
+  const exportInteractiveExcel = () => {
+    const byElev = {};
+    Object.entries(assignments).forEach(([key, mat]) => {
+      const ei = parseInt(key.split(":")[0]);
+      if (!byElev[ei]) byElev[ei] = [];
+      byElev[ei].push(mat);
+    });
+    const takeoffData = Object.entries(byElev).map(([eiStr, mats]) => {
+      const ei = parseInt(eiStr);
+      const elev = elevations[ei];
+      return {
+        title: elev?.title || "Page " + elev?.pageNumber,
+        pageNumber: elev?.pageNumber,
+        sheetRef: elev?.sheetRef || "",
+        building: elev?.building || "Building",
+        zones: mats.map(m => ({
+          materialId: m.materialId || m.category,
+          materialName: m.materialName || m.category,
+          category: m.category,
+          netArea: m.area_sf || 0,
+          grossArea: m.area_sf || 0,
+          totalOpeningArea: 0,
+        })),
+        flags: [],
+      };
+    });
+    const wb = buildExcel(results.projName || "Project", results.legend || [], takeoffData);
+    XLSX.writeFile(wb, "BPS_Takeoff_" + (results.projName || "Project").replace(/\s+/g, "_") + ".xlsx");
+  };
+
   // Totals across all elevations
   const totals = {};
   Object.values(assignments).forEach(a => {
@@ -487,6 +517,13 @@ function InteractiveView({ results, BACKEND }) {
                   </div>
                   <div style={{ fontSize: "0.58rem", color: "#3a5020" }}>adjusted +15% waste</div>
                 </div>
+
+                <button onClick={exportInteractiveExcel}
+                  style={{ marginTop: "0.75rem", width: "100%", padding: "0.6rem", background: "transparent",
+                    color: "#5aaa40", border: "1px solid #3a7a20", borderRadius: 3, fontSize: "0.65rem",
+                    fontFamily: "inherit", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer" }}>
+                  ↓ Export Excel
+                </button>
               </>
             )}
 
