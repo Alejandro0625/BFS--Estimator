@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+﻿import { useState, useRef, useEffect, useCallback } from "react";
 import * as XLSX from "xlsx";
 
 const WASTE = 0.15;
@@ -110,6 +110,293 @@ const buildExcel = (projectName, legend, takeoffData) => {
   return wb;
 };
 
+// ── Interactive Takeoff View ──────────────────────────────────────────────────
+function InteractiveView({ results, BACKEND }) {
+  const [elevIdx, setElevIdx] = useState(0);
+  const [pageImage, setPageImage] = useState(null);
+  const [imgLoaded, setImgLoaded] = useState(false);
+  const [pagePolygons, setPagePolygons] = useState([]);
+  const [pageDims, setPageDims] = useState({ width: 612, height: 792 });
+  const [assignments, setAssignments] = useState({}); // "elevIdx:polyId" → { category, materialId, materialName, area_sf }
+  const [activeZone, setActiveZone] = useState(null);
+  const [imgNaturalSize, setImgNaturalSize] = useState({ w: 1, h: 1 });
+  const imgRef = useRef();
+
+  const elevations = results.takeoffData.filter(e => e.pageNumber);
+  const elev = elevations[elevIdx];
+  const pageNum = elev?.pageNumber;
+
+  useEffect(() => {
+    if (!pageNum || !results.jobId) return;
+    setPageImage(null);
+    setImgLoaded(false);
+    setPagePolygons([]);
+    setActiveZone(null);
+
+    fetch(BACKEND + "/polygons/" + results.jobId + "/" + pageNum)
+      .then(r => r.ok ? r.json() : { polygons: [], width: 612, height: 792 })
+      .then(d => {
+        setPagePolygons(d.polygons || []);
+        setPageDims({ width: d.width || 612, height: d.height || 792 });
+      })
+      .catch(() => {});
+
+    setPageImage(BACKEND + "/page-image/" + results.jobId + "/" + pageNum);
+  }, [elevIdx, pageNum, results.jobId, BACKEND]);
+
+  // Vector polygons if we have them; otherwise Claude bbox zones as rectangles
+  const useVectorMode = pagePolygons.length > 2;
+  const displayZones = useVectorMode
+    ? pagePolygons
+    : (elev?.zones || []).map((z, i) => ({
+        id: i,
+        points: [
+          [z.x0pct / 100, z.y0pct / 100],
+          [z.x1pct / 100, z.y0pct / 100],
+          [z.x1pct / 100, z.y1pct / 100],
+          [z.x0pct / 100, z.y1pct / 100],
+        ],
+        area_sf: z.netArea || 0,
+        cx: (z.x0pct + z.x1pct) / 200,
+        cy: (z.y0pct + z.y1pct) / 200,
+        suggestedCategory: z.category,
+        suggestedId: z.materialId,
+        suggestedName: z.materialName,
+      }));
+
+  const assignKey = id => elevIdx + ":" + id;
+  const getAssignment = id => assignments[assignKey(id)];
+
+  const assignZone = (zoneId, mat) => {
+    const zone = displayZones.find(z => z.id === zoneId);
+    setAssignments(prev => ({
+      ...prev,
+      [assignKey(zoneId)]: { ...mat, area_sf: zone?.area_sf || 0 },
+    }));
+    setActiveZone(null);
+  };
+
+  const removeAssignment = zoneId => {
+    const k = assignKey(zoneId);
+    setAssignments(prev => { const n = { ...prev }; delete n[k]; return n; });
+  };
+
+  // Totals across all elevations
+  const totals = {};
+  Object.values(assignments).forEach(a => {
+    if (!totals[a.category]) totals[a.category] = 0;
+    totals[a.category] += a.area_sf || 0;
+  });
+  const grandTotal = Object.values(totals).reduce((s, v) => s + v, 0);
+
+  // SVG is sized to match the actual rendered image element
+  const svgW = imgRef.current?.offsetWidth || imgNaturalSize.w;
+  const svgH = imgRef.current?.offsetHeight || imgNaturalSize.h;
+
+  // Convert normalized 0-1 coords → SVG point string (viewBox is pageDims)
+  const toSVGPoints = pts =>
+    pts.map(([nx, ny]) => `${(nx * pageDims.width).toFixed(1)},${(ny * pageDims.height).toFixed(1)}`).join(" ");
+
+  const matList = results.legend.length > 0
+    ? results.legend
+    : Object.keys(MATERIAL_COLORS).map(cat => ({ id: cat.substring(0, 3).toUpperCase() + "-1", name: cat, category: cat }));
+
+  return (
+    <div style={{ display: "flex", height: "100%", overflow: "hidden", background: "#0a0908" }}>
+
+      {/* ── Left: elevation list ── */}
+      <div style={{ width: 175, borderRight: "1px solid #1e1c14", overflowY: "auto", flexShrink: 0, background: "#0c0b08" }}>
+        <div style={{ padding: "0.6rem 0.75rem", fontSize: "0.58rem", letterSpacing: "0.3em", color: "#6a5a30", textTransform: "uppercase" }}>
+          Elevations
+        </div>
+        {elevations.map((e, i) => {
+          const assigned = Object.keys(assignments).filter(k => k.startsWith(i + ":")).length;
+          return (
+            <div key={i} onClick={() => setElevIdx(i)}
+              style={{ padding: "0.5rem 0.75rem", cursor: "pointer", borderBottom: "1px solid #141208",
+                background: i === elevIdx ? "#141208" : "transparent",
+                borderLeft: i === elevIdx ? "2px solid #b89020" : "2px solid transparent" }}>
+              <div style={{ fontSize: "0.68rem", color: i === elevIdx ? "#d0b840" : "#7a6a40", lineHeight: 1.3 }}>
+                {e.title || "Page " + e.pageNumber}
+              </div>
+              <div style={{ fontSize: "0.58rem", color: assigned > 0 ? "#5a8030" : "#4a3a18", marginTop: 2 }}>
+                {assigned > 0 ? "✓ " + assigned + " assigned" : (e.zones || []).length + " zones · p." + e.pageNumber}
+              </div>
+            </div>
+          );
+        })}
+        {elevations.length === 0 && (
+          <div style={{ padding: "0.75rem", fontSize: "0.65rem", color: "#3a3020" }}>
+            No elevations with page numbers. Re-run analysis.
+          </div>
+        )}
+      </div>
+
+      {/* ── Center: image + SVG overlay ── */}
+      <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", alignItems: "center", padding: "1rem", gap: "0.5rem" }}>
+        <div style={{ fontSize: "0.65rem", color: "#5a4a20", alignSelf: "flex-start" }}>
+          {useVectorMode
+            ? "Vector mode — " + displayZones.length + " surfaces detected from PDF geometry"
+            : "Box mode — click zones identified by AI · Upload a CAD PDF for vector precision"}
+        </div>
+
+        {!pageImage ? (
+          <div style={{ color: "#3a3020", fontSize: "0.75rem", marginTop: "3rem" }}>Loading elevation image...</div>
+        ) : (
+          <div style={{ position: "relative", display: "inline-block", maxWidth: "100%" }}>
+            <img
+              ref={imgRef}
+              src={pageImage}
+              alt={elev?.title || "Elevation"}
+              onLoad={e => {
+                setImgNaturalSize({ w: e.target.naturalWidth, h: e.target.naturalHeight });
+                setImgLoaded(true);
+              }}
+              style={{ display: "block", maxWidth: "100%", maxHeight: "calc(100vh - 180px)", objectFit: "contain", border: "1px solid #1e1c14" }}
+            />
+            {imgLoaded && (
+              <svg
+                viewBox={`0 0 ${pageDims.width} ${pageDims.height}`}
+                style={{ position: "absolute", top: 0, left: 0, width: svgW, height: svgH, overflow: "visible" }}
+              >
+                {displayZones.map(zone => {
+                  const a = getAssignment(zone.id);
+                  const color = a ? (MATERIAL_COLORS[a.category] || "#7a7a7a") : "#8888aa";
+                  const isActive = activeZone === zone.id;
+                  const pts = toSVGPoints(zone.points);
+                  const labelX = zone.cx * pageDims.width;
+                  const labelY = zone.cy * pageDims.height;
+                  return (
+                    <g key={zone.id} style={{ cursor: "pointer" }}
+                      onClick={e => { e.stopPropagation(); setActiveZone(isActive ? null : zone.id); }}>
+                      <polygon
+                        points={pts}
+                        fill={color}
+                        fillOpacity={isActive ? 0.6 : a ? 0.38 : 0.18}
+                        stroke={color}
+                        strokeWidth={isActive ? 3 : a ? 2 : 1}
+                        strokeOpacity={isActive ? 1 : 0.8}
+                      />
+                      {(a || isActive) && (
+                        <>
+                          <rect
+                            x={labelX - 26} y={labelY - 9}
+                            width={52} height={17}
+                            fill="rgba(0,0,0,0.65)" rx={2}
+                          />
+                          <text
+                            x={labelX} y={labelY + 2}
+                            textAnchor="middle" dominantBaseline="middle"
+                            fill="white" fontSize={pageDims.width / 70}
+                            fontFamily="Arial" fontWeight="bold"
+                          >
+                            {Math.round(zone.area_sf)} SF
+                          </text>
+                        </>
+                      )}
+                    </g>
+                  );
+                })}
+              </svg>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Right: material palette + totals ── */}
+      <div style={{ width: 210, borderLeft: "1px solid #1e1c14", padding: "0.75rem", overflowY: "auto", flexShrink: 0, background: "#0c0b08" }}>
+
+        {activeZone !== null ? (
+          /* Material picker when a zone is selected */
+          <>
+            <div style={{ fontSize: "0.58rem", letterSpacing: "0.3em", color: "#6a5a30", textTransform: "uppercase", marginBottom: "0.5rem" }}>
+              Assign Surface
+            </div>
+            <div style={{ padding: "0.4rem 0.5rem", marginBottom: "0.6rem", background: "#141208", borderRadius: 3, fontSize: "0.65rem", color: "#8a7a50" }}>
+              {Math.round(displayZones.find(z => z.id === activeZone)?.area_sf || 0)} SF selected
+            </div>
+
+            {matList.map((mat, i) => (
+              <div key={i} onClick={() => assignZone(activeZone, mat)}
+                style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.45rem 0.5rem", marginBottom: "0.25rem",
+                  cursor: "pointer", background: "#141208", borderRadius: 3,
+                  border: "1px solid #2a2618", transition: "border-color 0.1s" }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = "#5a4a20"}
+                onMouseLeave={e => e.currentTarget.style.borderColor = "#2a2618"}>
+                <div style={{ width: 12, height: 12, borderRadius: 2, background: MATERIAL_COLORS[mat.category] || "#7a7a7a", flexShrink: 0 }} />
+                <div style={{ fontSize: "0.62rem", color: "#a09060", lineHeight: 1.3 }}>
+                  <span style={{ color: "#b89020" }}>{mat.id}</span>
+                  <br />
+                  <span>{mat.name || mat.category}</span>
+                </div>
+              </div>
+            ))}
+
+            {getAssignment(activeZone) && (
+              <div onClick={() => removeAssignment(activeZone)}
+                style={{ padding: "0.4rem 0.5rem", marginTop: "0.4rem", textAlign: "center", fontSize: "0.62rem", color: "#cc5050", cursor: "pointer", border: "1px solid #3a1818", borderRadius: 3 }}>
+                Remove assignment
+              </div>
+            )}
+            <div onClick={() => setActiveZone(null)}
+              style={{ padding: "0.4rem 0.5rem", marginTop: "0.25rem", textAlign: "center", fontSize: "0.62rem", color: "#5a4a20", cursor: "pointer", border: "1px solid #2a2618", borderRadius: 3 }}>
+              Cancel
+            </div>
+          </>
+        ) : (
+          /* SF totals when nothing selected */
+          <>
+            <div style={{ fontSize: "0.58rem", letterSpacing: "0.3em", color: "#6a5a30", textTransform: "uppercase", marginBottom: "0.6rem" }}>
+              SF Totals
+            </div>
+
+            {Object.keys(totals).length === 0 ? (
+              <div style={{ fontSize: "0.65rem", color: "#3a3020", lineHeight: 1.7 }}>
+                Click any highlighted<br />zone to assign material.<br /><br />
+                <span style={{ color: "#4a3a18" }}>
+                  {useVectorMode
+                    ? "Surfaces are from PDF vector data — pixel-accurate."
+                    : "Surfaces from AI zone detection."}
+                </span>
+              </div>
+            ) : (
+              <>
+                {Object.entries(totals).map(([cat, sf]) => (
+                  <div key={cat} style={{ marginBottom: "0.6rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                      <div style={{ width: 8, height: 8, borderRadius: 2, background: MATERIAL_COLORS[cat] || "#7a7a7a" }} />
+                      <span style={{ fontSize: "0.6rem", color: "#7a6a40" }}>{cat}</span>
+                    </div>
+                    <div style={{ fontSize: "1rem", fontWeight: 700, color: "#e0cc80", paddingLeft: "1rem" }}>
+                      {Math.round(sf).toLocaleString()} SF
+                    </div>
+                    <div style={{ fontSize: "0.6rem", color: "#5a4a20", paddingLeft: "1rem" }}>
+                      {Math.round(sf * 1.15).toLocaleString()} adj +15%
+                    </div>
+                  </div>
+                ))}
+                <div style={{ marginTop: "0.75rem", paddingTop: "0.6rem", borderTop: "1px solid #1e1c14" }}>
+                  <div style={{ fontSize: "0.6rem", color: "#5a8030" }}>Grand Total</div>
+                  <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "#90e060" }}>
+                    {Math.round(grandTotal * 1.15).toLocaleString()} SF
+                  </div>
+                  <div style={{ fontSize: "0.58rem", color: "#3a5020" }}>adjusted +15%</div>
+                </div>
+              </>
+            )}
+
+            <div style={{ marginTop: "1rem", fontSize: "0.58rem", color: "#4a3a18", lineHeight: 1.6 }}>
+              {Object.keys(assignments).length} zones assigned<br />
+              across {elevations.length} elevations
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Main App ──────────────────────────────────────────────────────────────────
 export default function BPSEstimator() {
   const [file, setFile] = useState(null);
   const [phase, setPhase] = useState("idle");
@@ -119,6 +406,7 @@ export default function BPSEstimator() {
   const [errMsg, setErrMsg] = useState("");
   const [pdfLoading, setPdfLoading] = useState(false);
   const [jobId, setJobId] = useState(null);
+  const [viewMode, setViewMode] = useState("table"); // "table" | "interactive"
   const fileRef = useRef();
   const logRef = useRef();
   const pollRef = useRef(null);
@@ -329,8 +617,29 @@ export default function BPSEstimator() {
 
         {/* Right Panel */}
         <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          {/* View mode toggle */}
+          {phase === "done" && results && (
+            <div style={{ padding: "0.5rem 1.25rem", borderBottom: "1px solid #1e1c14", display: "flex", gap: "0.5rem", background: "#0a0908", alignItems: "center" }}>
+              <span style={{ fontSize: "0.58rem", color: "#4a3a18", letterSpacing: "0.2em", textTransform: "uppercase", marginRight: "0.25rem" }}>View:</span>
+              {[["table", "📊 Table"], ["interactive", "🎨 Interactive Takeoff"]].map(([mode, label]) => (
+                <button key={mode} onClick={() => setViewMode(mode)}
+                  style={{ padding: "0.3rem 0.75rem", background: viewMode === mode ? "#2a2618" : "transparent",
+                    color: viewMode === mode ? "#d0b840" : "#5a4a20",
+                    border: "1px solid " + (viewMode === mode ? "#5a4a20" : "#1e1c14"),
+                    borderRadius: 3, fontSize: "0.65rem", fontFamily: "inherit", cursor: "pointer" }}>
+                  {label}
+                </button>
+              ))}
+              {viewMode === "interactive" && (
+                <span style={{ fontSize: "0.6rem", color: "#4a3a18", marginLeft: "0.5rem" }}>
+                  Click any zone on the elevation → assign material
+                </span>
+              )}
+            </div>
+          )}
+
           {/* Summary cards */}
-          {phase === "done" && summary && (
+          {phase === "done" && summary && viewMode === "table" && (
             <div style={{ padding: "1rem 1.25rem", borderBottom: "1px solid #1e1c14", display: "flex", gap: "0.75rem", flexWrap: "wrap", background: "#0a0908" }}>
               {Object.entries(summary).map(([cat, { net, adj, color }]) => (
                 <div key={cat} style={{ background: "#111008", border: "1px solid #2a2618", borderLeft: "3px solid " + color, borderRadius: 3, padding: "0.6rem 0.9rem", minWidth: 150 }}>
@@ -347,8 +656,15 @@ export default function BPSEstimator() {
             </div>
           )}
 
+          {/* Interactive Takeoff View */}
+          {phase === "done" && results && viewMode === "interactive" && (
+            <div style={{ flex: 1, overflow: "hidden" }}>
+              <InteractiveView results={results} BACKEND={BACKEND} />
+            </div>
+          )}
+
           {/* Elevation breakdown */}
-          {phase === "done" && results && (
+          {phase === "done" && results && viewMode === "table" && (
             <div style={{ flex: 1, overflowY: "auto", padding: "1rem 1.25rem" }}>
               <div style={{ fontSize: "0.6rem", letterSpacing: "0.3em", color: "#6a5a30", textTransform: "uppercase", marginBottom: "0.75rem" }}>Breakdown by Elevation</div>
               {results.takeoffData.map((elev, i) => {
@@ -412,3 +728,4 @@ export default function BPSEstimator() {
     </div>
   );
 }
+
