@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import * as XLSX from "xlsx";
+import { Stage, Layer, Line, Circle, Image as KImage } from "react-konva";
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || "";
 const BLUE      = "#4A86C8";
@@ -361,6 +362,89 @@ function InteractiveView({ results, BACKEND }) {
   );
 }
 
+/* ── Konva polygon editor: drag vertices to correct the AI, live SF ── */
+function EditorView({ results, BACKEND }) {
+  const elevations = results.takeoffData.filter(e=>e.pageNumber);
+  const [elevIdx,setElevIdx]=useState(0);
+  const elev=elevations[elevIdx];
+  const pageNum=elev?.pageNumber;
+  const [polys,setPolys]=useState([]);
+  const [pageDims,setPageDims]=useState({width:612,height:792});
+  const [img,setImg]=useState(null);
+  const [selId,setSelId]=useState(null);
+  const [stageW,setStageW]=useState(800);
+  const wrapRef=useRef();
+
+  useEffect(()=>{
+    if(!pageNum||!results.jobId) return;
+    setPolys([]); setSelId(null); setImg(null);
+    fetch(BACKEND+"/polygons/"+results.jobId+"/"+pageNum).then(r=>r.ok?r.json():{polygons:[]}).then(d=>{
+      if(d.width) setPageDims({width:d.width,height:d.height||792});
+      setPolys((d.polygons||[]).map((p,i)=>({id:i,points:p.points||[],category:p.material_type||p.category||"Other",area_sf:p.area_sf||0})));
+    }).catch(()=>{});
+    const im=new window.Image();
+    im.src=BACKEND+"/page-image/"+results.jobId+"/"+pageNum;
+    im.onload=()=>setImg(im);
+  },[elevIdx,pageNum,results.jobId,BACKEND]);
+
+  useEffect(()=>{
+    const update=()=>{ if(wrapRef.current) setStageW(Math.max(320, wrapRef.current.offsetWidth-32)); };
+    update(); window.addEventListener("resize",update); return ()=>window.removeEventListener("resize",update);
+  },[]);
+
+  const sc = stageW/pageDims.width;
+  const stageH = pageDims.height*sc;
+  const effFt = (()=>{ for(const p of polys){ if(p.area_sf>0&&p.points.length>=3){ const sh=polyAreaSF(p.points,72,pageDims.width,pageDims.height); if(sh>0) return 72*Math.sqrt(p.area_sf/sh);}} return 8; })();
+  const areaOf=p=>polyAreaSF(p.points,effFt,pageDims.width,pageDims.height);
+  const totalSF=polys.reduce((s,p)=>s+areaOf(p),0);
+  const updateVertex=(pid,vi,nx,ny)=>setPolys(prev=>prev.map(p=>p.id!==pid?p:{...p,points:p.points.map((pt,i)=>i===vi?[nx,ny]:pt)}));
+  const deletePoly=pid=>{ setPolys(prev=>prev.filter(p=>p.id!==pid)); setSelId(null); };
+
+  return (
+    <div style={{display:"flex",height:"100%",overflow:"hidden",background:NAVY,fontFamily:"'Inter','Segoe UI',sans-serif"}}>
+      <div style={{width:170,borderRight:"1px solid "+NAVY_LT,overflowY:"auto",flexShrink:0,background:NAVY_MID}}>
+        <div style={{padding:"0.8rem",fontSize:"0.6rem",letterSpacing:"0.12em",color:"#64748B",textTransform:"uppercase",fontWeight:700,borderBottom:"1px solid "+NAVY_LT}}>Elevations</div>
+        {elevations.map((e,i)=><div key={i} onClick={()=>setElevIdx(i)} style={{padding:"0.6rem 0.8rem",cursor:"pointer",borderBottom:"1px solid "+NAVY_LT,background:i===elevIdx?NAVY_LT:"transparent",fontSize:"0.7rem",color:i===elevIdx?"#E2E8F0":"#94A3B8",borderLeft:i===elevIdx?"3px solid "+BLUE:"3px solid transparent"}}>{e.title||"Page "+e.pageNumber}</div>)}
+      </div>
+      <div ref={wrapRef} style={{flex:1,overflow:"auto",padding:"1rem"}}>
+        <div style={{fontSize:"0.62rem",color:"#94A3B8",marginBottom:"0.5rem"}}>Click a shape to select · drag its dots to correct it · SF updates live</div>
+        {img?<Stage width={stageW} height={stageH} onMouseDown={e=>{ if(e.target===e.target.getStage()) setSelId(null); }}>
+          <Layer>
+            <KImage image={img} width={stageW} height={stageH}/>
+            {polys.map(p=>{
+              const flat=p.points.flatMap(([nx,ny])=>[nx*pageDims.width*sc, ny*pageDims.height*sc]);
+              const col=CLUSTER_COLORS[p.id%CLUSTER_COLORS.length];
+              const sel=selId===p.id;
+              return <Line key={p.id} points={flat} closed fill={col+(sel?"66":"33")} stroke={sel?"#ffffff":col} strokeWidth={sel?2:1} onClick={()=>setSelId(p.id)} onTap={()=>setSelId(p.id)}/>;
+            })}
+            {selId!==null&&(polys.find(p=>p.id===selId)?.points||[]).map(([nx,ny],vi)=>(
+              <Circle key={vi} x={nx*pageDims.width*sc} y={ny*pageDims.height*sc} radius={5} fill="#ffffff" stroke="#3B82F6" strokeWidth={2} draggable
+                onDragMove={e=>updateVertex(selId, vi, e.target.x()/(pageDims.width*sc), e.target.y()/(pageDims.height*sc))}/>
+            ))}
+          </Layer>
+        </Stage>:<div style={{color:"#475569",fontSize:"0.8rem",marginTop:"3rem"}}>Loading elevation…</div>}
+      </div>
+      <div style={{width:220,borderLeft:"1px solid "+NAVY_LT,padding:"1rem",background:NAVY_MID,overflowY:"auto",flexShrink:0}}>
+        <div style={{fontSize:"0.6rem",letterSpacing:"0.12em",color:"#64748B",textTransform:"uppercase",fontWeight:700,marginBottom:"0.5rem"}}>Surfaces ({polys.length})</div>
+        {polys.map(p=>{
+          const sel=selId===p.id;
+          return <div key={p.id} onClick={()=>setSelId(p.id)} style={{padding:"0.5rem 0.65rem",marginBottom:"0.35rem",background:sel?NAVY_LT:NAVY,borderRadius:6,cursor:"pointer",borderLeft:"3px solid "+CLUSTER_COLORS[p.id%CLUSTER_COLORS.length]}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:"0.65rem",color:"#CBD5E1"}}>{p.category}</span>
+              <span style={{fontSize:"0.72rem",fontWeight:700,color:"#E2E8F0"}}>{Math.round(areaOf(p)).toLocaleString()} SF</span>
+            </div>
+            {sel&&<div onClick={ev=>{ev.stopPropagation();deletePoly(p.id);}} style={{marginTop:"0.4rem",fontSize:"0.6rem",color:"#F87171",textAlign:"center",border:"1px solid #7F1D1D",borderRadius:5,padding:"0.3rem",cursor:"pointer"}}>Delete surface</div>}
+          </div>;
+        })}
+        <div style={{marginTop:"0.75rem",padding:"0.6rem 0.75rem",background:NAVY_LT,borderRadius:8,border:"1px solid "+BLUE+"40"}}>
+          <div style={{fontSize:"0.6rem",color:"#4ADE80",fontWeight:700}}>EDITED TOTAL</div>
+          <div style={{fontSize:"1.3rem",fontWeight:800,color:"#4ADE80"}}>{Math.round(totalSF).toLocaleString()} <span style={{fontSize:"0.65rem",fontWeight:400}}>SF</span></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Drawing-intelligence chip (verified scale, dims, schedule openings) ── */
 const fmtDims = bd => {
   if(!bd) return null;
@@ -671,7 +755,7 @@ export default function BFSEstimator() {
             <div>
               <div style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"0.6rem"}}>View</div>
               <div style={{display:"flex",flexDirection:"column",gap:"0.4rem"}}>
-                {[["table","📊  Table View"],["interactive","🎨  Interactive Takeoff"],["pricing","💵  Pricing & Bid"]].map(([mode,label])=>(
+                {[["table","📊  Table View"],["interactive","🎨  Interactive Takeoff"],["edit","✏️  Edit Surfaces"],["pricing","💵  Pricing & Bid"]].map(([mode,label])=>(
                   <button key={mode} onClick={()=>setViewMode(mode)} style={{padding:"0.55rem 0.75rem",borderRadius:7,fontSize:"0.72rem",fontWeight:viewMode===mode?700:400,fontFamily:"inherit",cursor:"pointer",border:"none",textAlign:"left",background:viewMode===mode?BLUE:"#F1F5F9",color:viewMode===mode?"#fff":"#64748B",transition:"all 0.15s"}}>{label}</button>
                 ))}
               </div>
@@ -696,6 +780,9 @@ export default function BFSEstimator() {
           <main style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
             {viewMode==="interactive"&&(
               <div style={{flex:1,overflow:"hidden"}}><InteractiveView results={results} BACKEND={BACKEND}/></div>
+            )}
+            {viewMode==="edit"&&(
+              <div style={{flex:1,overflow:"hidden"}}><EditorView results={results} BACKEND={BACKEND}/></div>
             )}
             {viewMode==="table"&&(
               <div style={{flex:1,overflowY:"auto",padding:"1.5rem"}}>
