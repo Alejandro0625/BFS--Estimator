@@ -183,33 +183,6 @@ const CLUSTER_UI_COLORS = [
   "#EAB308", "#8B5CF6", "#14B8A6", "#EF4444",
 ];
 
-// ── BPS Logo (grid of blue squares like the website) ──────────────────────────
-function BPSLogo({ size = 32 }) {
-  const sq = size / 3;
-  const letters = [
-    // B
-    [1,1,1, 1,1,0, 1,1,1],
-    // P
-    [1,1,1, 1,1,0, 1,0,0],
-    // S
-    [1,1,1, 0,1,1, 1,1,1],
-  ];
-  return (
-    <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
-      {letters.map((grid, li) => (
-        <div key={li} style={{ display: "grid", gridTemplateColumns: `repeat(3, ${sq}px)`, gap: 1.5 }}>
-          {grid.map((on, ci) => (
-            <div key={ci} style={{
-              width: sq, height: sq,
-              background: on ? C.white : "transparent",
-              borderRadius: 1,
-            }} />
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-}
 
 // ── Interactive Takeoff View ──────────────────────────────────────────────────
 function InteractiveView({ results, BACKEND }) {
@@ -740,9 +713,9 @@ export default function BPSEstimator() {
       {/* ── Header ── */}
       <div style={{ background: C.bpsBlue, padding: "0 1.5rem", height: 60, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, boxShadow: "0 2px 8px rgba(0,0,0,0.25)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-          <BPSLogo size={28} />
+          <img src="/logo.png" alt="BFS Logo" style={{ height: 44, width: "auto" }} />
           <div>
-            <div style={{ fontSize: "0.55rem", letterSpacing: "0.2em", color: "rgba(255,255,255,0.7)", textTransform: "uppercase", fontWeight: 500 }}>Boston Panel Systems</div>
+            <div style={{ fontSize: "0.55rem", letterSpacing: "0.2em", color: "rgba(255,255,255,0.7)", textTransform: "uppercase", fontWeight: 500 }}>Boston Facade Systems</div>
             <div style={{ fontSize: "1rem", fontWeight: 700, color: C.white, letterSpacing: "-0.01em" }}>AI Panel Estimator</div>
           </div>
         </div>
