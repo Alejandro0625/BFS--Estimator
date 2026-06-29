@@ -167,6 +167,13 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments }) {
     setPageImage(BACKEND+"/page-image/"+results.jobId+"/"+pageNum);
   }, [elevIdx, pageNum, results.jobId, BACKEND]);
 
+  // Pull shared learning from the server into local memory (so repeats are pre-identified)
+  useEffect(()=>{
+    fetch(BACKEND+"/recall").then(r=>r.ok?r.json():null).then(d=>{
+      if(d&&d.hatches){ const m=loadLearned(); let ch=false; for(const k in d.hatches){ if(!m[k]){ m[k]=d.hatches[k]; ch=true; } } if(ch) saveLearned(m); }
+    }).catch(()=>{});
+  },[BACKEND]);
+
   const polyMethod = pagePolygons[0]?.source||(pagePolygons.length>0?"vector":"box");
   const rawZones = pagePolygons.length>0 ? pagePolygons : (elev?.zones||[]).map((z,i)=>({
     id:i,points:[[z.x0pct/100,z.y0pct/100],[z.x1pct/100,z.y0pct/100],[z.x1pct/100,z.y1pct/100],[z.x0pct/100,z.y1pct/100]],
@@ -206,7 +213,9 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments }) {
   const assignGroup = mat => {
     setAssignments(prev=>{const n={...prev};selectedZones.forEach(z=>{n[assignKey(z.id)]={...mat,area_sf:z.area_sf||0};});return n;});
     const sig=hatchSig(selectedZones.find(z=>hatchSig(z)));
-    if(sig){ const m=loadLearned(); m[sig]={category:mat.category,materialName:mat.name||mat.category,id:mat.id,at:Date.now()}; saveLearned(m); }
+    if(sig){ const m=loadLearned(); m[sig]={category:mat.category,materialName:mat.name||mat.category,id:mat.id,at:Date.now()}; saveLearned(m);
+      fetch(BACKEND+"/learn",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({hatches:[{signature:sig,category:mat.category,materialName:mat.name||mat.category,materialId:mat.id}]})}).catch(()=>{});
+    }
     setActiveGroup(null);
   };
   const removeGroup = () => { setAssignments(prev=>{const n={...prev};selectedIds.forEach(id=>delete n[assignKey(id)]);return n;}); };
