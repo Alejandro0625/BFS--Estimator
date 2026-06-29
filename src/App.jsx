@@ -17,95 +17,163 @@ const MATERIAL_COLORS = {
   "Other":                  "#7a7a7a",
 };
 
-const buildExcel = (projectName, legend, takeoffData) => {
+// Builds Excel matching the exact BPS proposal + estimate template
+// materials = [{ name, sf }]  — one row per assigned material type
+const buildExcel = (projectName, materials) => {
   const wb = XLSX.utils.book_new();
+  const today = new Date().toLocaleDateString("en-US");
+  const n11 = () => Array(11).fill(null);
+  const n10 = () => Array(10).fill(null);
 
-  // Tab 1: By Elevation
-  const rows1 = [
-    ["EXTERIOR PANEL TAKEOFF — BY ELEVATION"],
-    ["Project:", projectName || ""],
-    ["Date:", new Date().toLocaleDateString()],
-    ["Waste Factor:", "15%"],
-    [],
-    ["Sheet Ref", "Elevation", "Material ID", "Material Name", "Category", "Gross SF", "Openings SF", "Net SF", "Waste (15%)", "Adj SF", "Notes"]
+  // ── ESTIMATE SHEET ──────────────────────────────────────────────
+  // Cols: A(0) B(1) C(2) D(3) E(4) F(5) G(6) H(7) I(8) J(9)
+  const eRows = [];
+
+  // Rows 1-2: project name (A1:H2 merged)
+  let er = n10(); er[0] = projectName || ""; eRows.push(er);
+  eRows.push(n10());
+
+  // Row 3: blank section spacer (A3:H3 merged)
+  eRows.push(n10());
+
+  // Row 4: PANELS header (A4:G4 merged)
+  er = n10(); er[0] = "PANELS"; eRows.push(er);
+
+  // Row 5: column headers
+  er = n10();
+  er[0] = "No."; er[1] = "ACM/ACP"; er[2] = "Quantity"; er[4] = "Conv"; er[5] = "Rate"; er[6] = "Amount";
+  eRows.push(er);
+
+  // Row 6: blank
+  eRows.push(n10());
+
+  // Rows 7+: one section per material (header row + item row)
+  const amtCells = [];
+  materials.forEach((mat, idx) => {
+    // material name subheader
+    er = n10(); er[1] = mat.name; eRows.push(er);
+    // item row
+    const itemExcelRow = eRows.length + 1; // 1-indexed
+    er = n10();
+    er[0] = idx + 1;
+    er[1] = mat.name;
+    er[2] = Math.round(mat.sf);
+    er[4] = 1;
+    er[5] = "";          // $/SF — estimator fills this in
+    er[6] = `=C${itemExcelRow}*F${itemExcelRow}`;
+    amtCells.push(`G${itemExcelRow}`);
+    eRows.push(er);
+  });
+
+  // Pad to row 25 area for Total
+  while (eRows.length < 24) eRows.push(n10());
+  const totalExcelRow = eRows.length + 1;
+  er = n10();
+  er[1] = "Total ";
+  er[2] = materials.reduce((s, m) => s + Math.round(m.sf), 0);
+  er[6] = amtCells.length ? `=${amtCells.join("+")}` : 0;
+  eRows.push(er);
+
+  // Row after total: blank
+  eRows.push(n10());
+
+  // PANEL BACK-UP SYSTEM section
+  er = n10(); er[0] = "PANEL BACK-UP SYSTEM- Z-Girts, Hat Channel, Insulation"; eRows.push(er);
+  eRows.push(n10());
+  er = n10();
+  er[1] = "Furnish and install the quantity of new metal panels required\nAny exterior caulking required\nLifts / tie-off required per site policy\nAny break metal/flashing required\nStructural calculations and PE stamp\nShop drawings\nTaxes";
+  eRows.push(er);
+
+  // Pad to row 35
+  while (eRows.length < 34) eRows.push(n10());
+
+  // SPECIFICATIONS section
+  er = n10(); er[0] = "SPECIFICATIONS"; eRows.push(er);
+  eRows.push(n10());
+  ["GC", "Location", "Profit/Non-Profit", "Taxable/Non-Taxable", "Prevailing Wage", "Drawing Set", "Building Height"].forEach(f => {
+    er = n10(); er[0] = f; eRows.push(er);
+  });
+
+  const wsE = XLSX.utils.aoa_to_sheet(eRows);
+  wsE["!cols"] = [5.14, 57.43, 11.86, 4.14, 5.43, 12.86, 12.43].map(w => ({ wch: w }));
+  wsE["!merges"] = [
+    { s: { r: 0, c: 0 }, e: { r: 1, c: 7 } },
+    { s: { r: 2, c: 0 }, e: { r: 2, c: 7 } },
+    { s: { r: 3, c: 0 }, e: { r: 3, c: 6 } },
+    { s: { r: totalExcelRow - 1, c: 0 }, e: { r: totalExcelRow - 1, c: 9 } },
+    { s: { r: eRows.length - 8, c: 0 }, e: { r: eRows.length - 8, c: 6 } },
   ];
+  XLSX.utils.book_append_sheet(wb, wsE, "Estimate");
 
-  const byBuilding = {};
-  takeoffData.forEach(e => {
-    const b = e.building || "Building";
-    if (!byBuilding[b]) byBuilding[b] = [];
-    byBuilding[b].push(e);
-  });
+  // ── PROPOSAL SHEET ──────────────────────────────────────────────
+  // Cols A–K (0–10), 11 wide. Right side (F=5 onward) = GC/job info
+  const pRows = [];
 
-  Object.entries(byBuilding).forEach(([bld, elevs]) => {
-    rows1.push([bld.toUpperCase()]);
-    elevs.forEach(elev => {
-      const elevTotal = (elev.zones || []).reduce((s, z) => s + (z.netArea || 0), 0);
-      rows1.push(["", elev.title + " — Total: " + Math.round(elevTotal) + " SF net"]);
-      (elev.zones || []).forEach(z => {
-        const waste = (z.netArea || 0) * WASTE;
-        const adj = (z.netArea || 0) + waste;
-        rows1.push([elev.sheetRef || "", elev.title || "", z.materialId || "", z.materialName || "", z.category || "", Math.round(z.grossArea || 0), Math.round(z.totalOpeningArea || 0), Math.round(z.netArea || 0), Math.round(waste), Math.round(adj), z.description || ""]);
-      });
-      if ((elev.flags || []).filter(Boolean).length) rows1.push(["", "⚠ " + elev.flags.filter(Boolean).join(" | ")]);
-      rows1.push([]);
-    });
-  });
+  let pr = n11(); pr[5] = "PROPOSAL"; pRows.push(pr);
+  pr = n11(); pr[5] = "DATE:"; pr[6] = today; pRows.push(pr);
+  pr = n11(); pr[0] = "ACM. Trespa. Terracotta  &  Specialty Metal Panels"; pr[5] = "This proposal may be withdrawn by us if not accepted within 30 days."; pRows.push(pr);
+  pr = n11(); pr[0] = "15 Erie Drive"; pr[5] = "E-mail:"; pRows.push(pr);
+  pr = n11(); pr[0] = "Natick, MA 01760"; pr[5] = ""; pRows.push(pr);          // GC email — leave blank
+  pr = n11(); pr[0] = "PH: 617-458-2000  "; pr[5] = "Phone:"; pRows.push(pr);
+  pr = n11(); pr[0] = "To:"; pr[1] = ""; pr[5] = ""; pRows.push(pr);           // GC PM name + phone
+  pr = n11(); pr[1] = ""; pr[5] = "Job Name / location:"; pRows.push(pr);       // GC PM title
+  pr = n11(); pr[1] = ""; pr[5] = projectName || ""; pRows.push(pr);            // GC company + job name
+  pr = n11(); pr[1] = ""; pr[5] = "Job number: "; pRows.push(pr);
+  pr = n11(); pr[5] = ""; pRows.push(pr);                                        // job number
+  pr = n11(); pr[0] = "We hereby submit specifications and estimates for:"; pRows.push(pr);
 
-  const ws1 = XLSX.utils.aoa_to_sheet(rows1);
-  ws1["!cols"] = [12, 35, 12, 30, 20, 10, 12, 10, 10, 10, 30].map(w => ({ wch: w }));
-  XLSX.utils.book_append_sheet(wb, ws1, "By Elevation");
+  const mainMat = materials[0]?.name || "[Material]";
+  const totalSF = materials.reduce((s, m) => s + Math.round(m.sf), 0);
+  pr = n11(); pr[1] = `Install ${totalSF.toLocaleString()}sf of ${mainMat}.`; pRows.push(pr);
 
-  // Tab 2: Summary with pricing boxes
-  const matTotals = {};
-  takeoffData.forEach(e => (e.zones || []).forEach(z => {
-    const key = (z.materialId || "") + "||" + (z.materialName || "") + "||" + (z.category || "");
-    if (!matTotals[key]) matTotals[key] = { materialId: z.materialId, materialName: z.materialName, category: z.category || "Other", net: 0, adj: 0 };
-    matTotals[key].net += z.netArea || 0;
-    matTotals[key].adj += (z.netArea || 0) * 1.15;
-  }));
-
-  const rows2 = [
-    ["EXTERIOR PANEL ESTIMATE — SUMMARY"],
-    ["Project:", projectName || ""],
-    ["Date:", new Date().toLocaleDateString()],
-    [],
-    ["No.", "Material ID", "Material Name", "Category", "Net SF", "Adj SF (+15%)", "$/SF (enter rate)", "Total $", "Notes"],
+  const scopeItems = [
+    "Include all OSHA and fall protection compliance for the installation of panels",
+    "Include all staging and lifts for the performance of work.",
+    `F&I ${materials.map(m => m.name).join(", ")} as specified.`,
+    "F&I all metal trim and accessories with panels as specified.",
+    "Remove and dispose of all job related debris to the general contractor's dumpster.",
+    "MA Sales Tax Included on all materials if applicable.",
   ];
+  scopeItems.forEach((item, i) => { pr = n11(); pr[0] = i + 1; pr[1] = item; pRows.push(pr); });
 
-  let no = 1;
-  const byCategory = {};
-  Object.values(matTotals).forEach(m => {
-    if (!byCategory[m.category]) byCategory[m.category] = [];
-    byCategory[m.category].push(m);
-  });
+  pr = n11(); pr[1] = "ADD/ALT: ENGINEERING DESIGN AND CALCULATIONS"; pr[7] = ": $4,500"; pRows.push(pr);
+  pr = n11(); pr[1] = "NOTE: Air Vapor barrier behind all exterior panel system not included"; pRows.push(pr);
+  pr = n11(); pr[0] = "NOTE: THIS IS A BUDGETARY NUMBER ONLY PENDING FINAL SCOPE REVIEW & ENGINEERING CRITERIA"; pRows.push(pr);
+  pr = n11(); pr[2] = "PRICING GOOD FOR 30 DAYS DUE TO INDUSTRY-WIDE PRICE ESCALATION"; pRows.push(pr);
+  pr = n11(); pr[1] = "NIC: blocking, framing, plywood substrate, police details & street permits,"; pRows.push(pr);
+  pr = n11(); pr[1] = "thru-wall flashings, flashings not associated with the panel installations,"; pRows.push(pr);
+  pr = n11(); pr[1] = " custom colors* (except where noted), winter conditions"; pRows.push(pr);
+  pr = n11(); pr[1] = '*** all contracts to have "BPS conditions for Metal Panels/Siding" attached.'; pRows.push(pr);
+  pRows.push(n11());
+  pr = n11(); pr[0] = "We propose hereby to furnish materials and labor - complete in accordance with above specifications for the sum of:"; pRows.push(pr);
 
-  let dataRow = 6;
-  Object.entries(byCategory).forEach(([cat, mats]) => {
-    rows2.push(["", "", cat.toUpperCase()]);
-    dataRow++;
-    mats.forEach(m => {
-      const adj = Math.round(m.adj);
-      const net = Math.round(m.net);
-      rows2.push([no++, m.materialId || "", m.materialName || "", m.category || "", net, adj, "", "", "Net: " + net + " SF + 15% = " + adj + " SF"]);
-      dataRow++;
-    });
-    rows2.push([]);
-    dataRow++;
-  });
+  // TOTAL: references Estimate sheet total row
+  pr = n11(); pr[7] = "TOTAL:"; pr[8] = `=Estimate!G${totalExcelRow}`; pRows.push(pr);
 
-  rows2.push(["", "", "", "TOTAL", "", Math.round(Object.values(matTotals).reduce((s, m) => s + m.adj, 0)), "", "", ""]);
+  pr = n11(); pr[0] = "Payment to be made as follows:"; pr[4] = "AIA Format"; pRows.push(pr);
+  pr = n11(); pr[6] = "Akshita Patel"; pRows.push(pr);
+  pr = n11(); pr[7] = "Authorized Signature"; pRows.push(pr);
+  pr = n11(); pr[0] = "All material to be as specified. All work to be performed in a professional manner according to standard practices. Any alteration or deviation from above specifications involving additional costs will be executed only upon written orders and will be an extra charge. Payment is due in full within thirty (30) days of the date of the invoice. Interest will be charged on outstanding balances at twelve percent (12%) per annum."; pRows.push(pr);
+  pr = n11(); pr[0] = "Acceptance of Proposal — The above prices, specifications and conditions are satisfactory and hereby accepted. You are authorized to do the work as specified. Payment as outlined above."; pRows.push(pr);
+  pr = n11(); pr[3] = "Date:"; pr[7] = "Signature"; pRows.push(pr);
 
-  const ws2 = XLSX.utils.aoa_to_sheet(rows2);
-  ws2["!cols"] = [6, 12, 35, 22, 10, 12, 16, 14, 35].map(w => ({ wch: w }));
-  XLSX.utils.book_append_sheet(wb, ws2, "Estimate Summary");
-
-  // Tab 3: Legend
-  const rows3 = [["EXTERIOR PANEL MATERIALS LEGEND"], [], ["Material ID", "Name", "Category", "Color/Finish", "Notes"]];
-  legend.forEach(m => rows3.push([m.id, m.name, m.category, m.color || "", m.notes || ""]));
-  const ws3 = XLSX.utils.aoa_to_sheet(rows3);
-  ws3["!cols"] = [14, 35, 22, 20, 30].map(w => ({ wch: w }));
-  XLSX.utils.book_append_sheet(wb, ws3, "Material Legend");
+  const wsP = XLSX.utils.aoa_to_sheet(pRows);
+  wsP["!cols"] = [7.14, 9.14, 12, 12, 16.71, 9.57, 9.14, 12, 12, 12, 12].map(w => ({ wch: w }));
+  wsP["!merges"] = [
+    { s: { r: 0, c: 5 }, e: { r: 0, c: 10 } },
+    { s: { r: 1, c: 6 }, e: { r: 1, c: 7 } },
+    { s: { r: 2, c: 5 }, e: { r: 2, c: 10 } },
+    { s: { r: 3, c: 5 }, e: { r: 3, c: 10 } },
+    { s: { r: 4, c: 5 }, e: { r: 4, c: 10 } },
+    { s: { r: 5, c: 5 }, e: { r: 5, c: 10 } },
+    { s: { r: 6, c: 5 }, e: { r: 6, c: 10 } },
+    { s: { r: 7, c: 5 }, e: { r: 7, c: 10 } },
+    { s: { r: 8, c: 5 }, e: { r: 8, c: 10 } },
+    { s: { r: 9, c: 5 }, e: { r: 9, c: 10 } },
+    { s: { r: 10, c: 5 }, e: { r: 10, c: 10 } },
+    { s: { r: pRows.length - 4, c: 0 }, e: { r: pRows.length - 3, c: 5 } },
+  ];
+  XLSX.utils.book_append_sheet(wb, wsP, "Proposal");
 
   return wb;
 };
@@ -219,33 +287,17 @@ function InteractiveView({ results, BACKEND }) {
   };
 
   const exportInteractiveExcel = () => {
-    const byElev = {};
-    Object.entries(assignments).forEach(([key, mat]) => {
-      const ei = parseInt(key.split(":")[0]);
-      if (!byElev[ei]) byElev[ei] = [];
-      byElev[ei].push(mat);
+    // Aggregate SF by material name across all assignments
+    const matTotals = {};
+    Object.values(assignments).forEach(a => {
+      const key = a.materialName || a.category || "Panel";
+      if (!matTotals[key]) matTotals[key] = { name: key, sf: 0 };
+      matTotals[key].sf += a.area_sf || 0;
     });
-    const takeoffData = Object.entries(byElev).map(([eiStr, mats]) => {
-      const ei = parseInt(eiStr);
-      const elev = elevations[ei];
-      return {
-        title: elev?.title || "Page " + elev?.pageNumber,
-        pageNumber: elev?.pageNumber,
-        sheetRef: elev?.sheetRef || "",
-        building: elev?.building || "Building",
-        zones: mats.map(m => ({
-          materialId: m.materialId || m.category,
-          materialName: m.materialName || m.category,
-          category: m.category,
-          netArea: m.area_sf || 0,
-          grossArea: m.area_sf || 0,
-          totalOpeningArea: 0,
-        })),
-        flags: [],
-      };
-    });
-    const wb = buildExcel(results.projName || "Project", results.legend || [], takeoffData);
-    XLSX.writeFile(wb, "BPS_Takeoff_" + (results.projName || "Project").replace(/\s+/g, "_") + ".xlsx");
+    const materials = Object.values(matTotals);
+    const projName = results.projName || "Project";
+    const wb = buildExcel(projName, materials);
+    XLSX.writeFile(wb, "BPS_Takeoff_" + projName.replace(/\s+/g, "_") + ".xlsx");
   };
 
   // Totals across all elevations
@@ -637,7 +689,14 @@ export default function BPSEstimator() {
 
   const exportExcel = () => {
     if (!results) return;
-    const wb = buildExcel(results.projName, results.legend, results.takeoffData);
+    // Build material list from Claude AI takeoff data
+    const matTotals = {};
+    results.takeoffData.forEach(e => (e.zones || []).forEach(z => {
+      const key = z.materialName || z.category || "Panel";
+      if (!matTotals[key]) matTotals[key] = { name: key, sf: 0 };
+      matTotals[key].sf += z.netArea || 0;
+    }));
+    const wb = buildExcel(results.projName || "Project", Object.values(matTotals));
     XLSX.writeFile(wb, "BPS_Takeoff_" + (results.projName || "Project").replace(/\s+/g, "_") + ".xlsx");
   };
 
