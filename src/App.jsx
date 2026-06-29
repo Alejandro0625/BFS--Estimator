@@ -18,6 +18,13 @@ const MAT_COLORS = {
 };
 const CLUSTER_COLORS = ["#3B82F6","#F97316","#22C55E","#EC4899","#EAB308","#8B5CF6","#14B8A6","#EF4444"];
 
+/* Default installed rates ($/SF, material+labor). Editable — these are ballpark starting points. */
+const DEFAULT_RATES = {
+  "ACM Panel":38,"MCM Panel":40,"Fiber Cement Panel":22,"Fiber Cement Plank":18,
+  "Nichiha Panel":24,"Aluminum Wall Panel":32,"Perforated Metal Panel":45,
+  "Soffit Panel":28,"Return/Trim":30,"Other":25,
+};
+
 /* Shoelace area of a normalized polygon → square feet, given ft-per-paper-inch */
 const polyAreaSF = (points, ftPerInch, W, H) => {
   if (!points || points.length < 3) return 0;
@@ -49,9 +56,11 @@ const linearFt = (zones, ftPerInch, W, H) => {
 };
 
 /* ── Excel builder ── */
-const buildExcel = (projectName, materials) => {
+const buildExcel = (projectName, materials, pricing) => {
   const wb = XLSX.utils.book_new();
   const today = new Date().toLocaleDateString("en-US");
+  const waste = (pricing?.wastePct || 0) / 100;
+  const margin = (pricing?.marginPct || 0) / 100;
   const n11 = () => Array(11).fill(null);
   const n10 = () => Array(10).fill(null);
   const eRows = [];
@@ -64,11 +73,11 @@ const buildExcel = (projectName, materials) => {
   materials.forEach((mat, idx) => {
     er = n10(); er[1] = mat.name; eRows.push(er);
     const row = eRows.length + 1;
-    er = n10(); er[0]=idx+1; er[1]=mat.name; er[2]=Math.round(mat.sf); er[4]=1; er[5]=""; er[6]=`=C${row}*F${row}`; amtCells.push(`G${row}`); eRows.push(er);
+    er = n10(); er[0]=idx+1; er[1]=mat.name; er[2]=Math.round(mat.sf*(1+waste)); er[4]=1; er[5]=mat.rate!=null?mat.rate:""; er[6]=`=C${row}*F${row}`; amtCells.push(`G${row}`); eRows.push(er);
   });
   while (eRows.length < 24) eRows.push(n10());
   const totalRow = eRows.length + 1;
-  er = n10(); er[1]="Total "; er[2]=materials.reduce((s,m)=>s+Math.round(m.sf),0); er[6]=amtCells.length?`=${amtCells.join("+")}`:0; eRows.push(er);
+  er = n10(); er[1]="Total "; er[2]=materials.reduce((s,m)=>s+Math.round(m.sf*(1+waste)),0); er[6]=amtCells.length?`=${amtCells.join("+")}`:0; eRows.push(er);
   eRows.push(n10());
   er = n10(); er[0]="PANEL BACK-UP SYSTEM- Z-Girts, Hat Channel, Insulation"; eRows.push(er);
   eRows.push(n10());
@@ -108,7 +117,7 @@ const buildExcel = (projectName, materials) => {
   pr=n11(); pr[1]='*** all contracts to have "BPS conditions for Metal Panels/Siding" attached.'; pRows.push(pr);
   pRows.push(n11());
   pr=n11(); pr[0]="We propose hereby to furnish materials and labor - complete in accordance with above specifications for the sum of:"; pRows.push(pr);
-  pr=n11(); pr[7]="TOTAL:"; pr[8]=`=Estimate!G${totalRow}`; pRows.push(pr);
+  pr=n11(); pr[7]="TOTAL:"; pr[8]=margin?`=Estimate!G${totalRow}*${(1+margin).toFixed(4)}`:`=Estimate!G${totalRow}`; pRows.push(pr);
   pr=n11(); pr[0]="Payment to be made as follows:"; pr[4]="AIA Format"; pRows.push(pr);
   pr=n11(); pr[6]="Akshita Patel"; pRows.push(pr);
   pr=n11(); pr[7]="Authorized Signature"; pRows.push(pr);
@@ -380,6 +389,7 @@ export default function BFSEstimator() {
   const [pdfLoading, setPdfLoading] = useState(false);
   const [viewMode, setViewMode] = useState("table");
   const [dragOver, setDragOver] = useState(false);
+  const [pricing, setPricing] = useState({ rates:{}, wastePct:15, marginPct:20 });
   const fileRef  = useRef();
   const logRef   = useRef();
   const pollRef  = useRef(null);
@@ -455,6 +465,19 @@ export default function BFSEstimator() {
   }:null;
   const summaryData = summary ? summary() : null;
   const grandAdj = summaryData ? Object.values(summaryData).reduce((s,v)=>s+v.adj,0) : 0;
+  const priceRows = summaryData ? Object.entries(summaryData).map(([cat,{net}])=>{
+    const rate = pricing.rates[cat]!=null ? pricing.rates[cat] : (DEFAULT_RATES[cat]??DEFAULT_RATES.Other);
+    const adjSF = net*(1+pricing.wastePct/100);
+    return { cat, net, adjSF, rate, cost:adjSF*rate };
+  }) : [];
+  const costSubtotal = priceRows.reduce((s,r)=>s+r.cost,0);
+  const bidTotal = costSubtotal*(1+pricing.marginPct/100);
+  const exportPricedExcel=()=>{
+    if(!priceRows.length)return;
+    const mats=priceRows.map(r=>({name:r.cat,sf:r.net,rate:r.rate}));
+    const wb=buildExcel(results.projName||"Project",mats,{wastePct:pricing.wastePct,marginPct:pricing.marginPct});
+    XLSX.writeFile(wb,"BFS_Bid_"+(results.projName||"Project").replace(/\s+/g,"_")+".xlsx");
+  };
   const phaseStep={idle:0,running:1,filtering:1,legend:2,analyzing:3,done:4,error:0}[phase]||0;
   const isRunning=!["idle","done","error"].includes(phase);
   const logColor={ok:"#22C55E",warn:"#F59E0B",error:"#EF4444",success:"#22C55E",dim:"#94A3B8",info:"#64748B"};
@@ -648,7 +671,7 @@ export default function BFSEstimator() {
             <div>
               <div style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"0.6rem"}}>View</div>
               <div style={{display:"flex",flexDirection:"column",gap:"0.4rem"}}>
-                {[["table","📊  Table View"],["interactive","🎨  Interactive Takeoff"]].map(([mode,label])=>(
+                {[["table","📊  Table View"],["interactive","🎨  Interactive Takeoff"],["pricing","💵  Pricing & Bid"]].map(([mode,label])=>(
                   <button key={mode} onClick={()=>setViewMode(mode)} style={{padding:"0.55rem 0.75rem",borderRadius:7,fontSize:"0.72rem",fontWeight:viewMode===mode?700:400,fontFamily:"inherit",cursor:"pointer",border:"none",textAlign:"left",background:viewMode===mode?BLUE:"#F1F5F9",color:viewMode===mode?"#fff":"#64748B",transition:"all 0.15s"}}>{label}</button>
                 ))}
               </div>
@@ -716,6 +739,58 @@ export default function BFSEstimator() {
                     {(elev.flags||[]).filter(Boolean).length>0&&<div style={{padding:"0.4rem 0.75rem",fontSize:"0.65rem",color:"#92400E",background:"#FFFBEB",borderTop:"1px solid #FEF3C7"}}>⚠ {elev.flags.filter(Boolean).join(" · ")}</div>}
                   </div>;
                 })}
+              </div>
+            )}
+            {viewMode==="pricing"&&(
+              <div style={{flex:1,overflowY:"auto",padding:"1.5rem"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1rem"}}>
+                  <div style={{fontSize:"0.65rem",letterSpacing:"0.1em",color:BLUE,textTransform:"uppercase",fontWeight:700}}>Pricing &amp; Bid</div>
+                  <button onClick={exportPricedExcel} disabled={!priceRows.length} style={{padding:"0.5rem 1rem",background:priceRows.length?BLUE:"#E2E8F0",color:priceRows.length?"#fff":"#9CA3AF",border:"none",borderRadius:7,fontSize:"0.72rem",fontWeight:700,fontFamily:"inherit",cursor:priceRows.length?"pointer":"not-allowed"}}>↓ Export Priced Bid (Excel)</button>
+                </div>
+                {!priceRows.length?(
+                  <div style={{fontSize:"0.8rem",color:"#94A3B8"}}>No materials detected yet — run an analysis first.</div>
+                ):(
+                  <>
+                    <div style={{display:"flex",gap:"1rem",marginBottom:"1rem",flexWrap:"wrap"}}>
+                      <div style={{display:"flex",flexDirection:"column",gap:"0.25rem"}}>
+                        <label style={{fontSize:"0.6rem",color:"#94A3B8",textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:600}}>Waste %</label>
+                        <input type="number" value={pricing.wastePct} onChange={e=>setPricing(p=>({...p,wastePct:parseFloat(e.target.value)||0}))} style={{width:80,padding:"0.4rem 0.5rem",borderRadius:6,border:"1px solid #E2E8F0",fontSize:"0.8rem",fontFamily:"inherit"}}/>
+                      </div>
+                      <div style={{display:"flex",flexDirection:"column",gap:"0.25rem"}}>
+                        <label style={{fontSize:"0.6rem",color:"#94A3B8",textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:600}}>Margin %</label>
+                        <input type="number" value={pricing.marginPct} onChange={e=>setPricing(p=>({...p,marginPct:parseFloat(e.target.value)||0}))} style={{width:80,padding:"0.4rem 0.5rem",borderRadius:6,border:"1px solid #E2E8F0",fontSize:"0.8rem",fontFamily:"inherit"}}/>
+                      </div>
+                    </div>
+                    <div style={{background:"#fff",borderRadius:10,boxShadow:"0 1px 4px rgba(0,0,0,0.07)",border:"1px solid #F1F5F9",overflow:"hidden",marginBottom:"1rem"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse"}}>
+                        <thead><tr style={{background:"#F8FAFC"}}>{["Material","Net SF","+Waste SF","Rate $/SF","Extended $"].map(h=>(
+                          <th key={h} style={{padding:"0.5rem 0.9rem",textAlign:h==="Material"?"left":"right",fontSize:"0.6rem",fontWeight:600,color:"#94A3B8",textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1px solid #F1F5F9"}}>{h}</th>
+                        ))}</tr></thead>
+                        <tbody>{priceRows.map(r=>(
+                          <tr key={r.cat} style={{borderBottom:"1px solid #F8FAFC"}}>
+                            <td style={{padding:"0.5rem 0.9rem"}}><div style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:8,height:8,borderRadius:2,background:MAT_COLORS[r.cat]||"#9CA3AF"}}/><span style={{fontSize:"0.75rem",color:"#374151",fontWeight:500}}>{r.cat}</span></div></td>
+                            <td style={{padding:"0.5rem 0.9rem",textAlign:"right",fontSize:"0.72rem",color:"#64748B"}}>{Math.round(r.net).toLocaleString()}</td>
+                            <td style={{padding:"0.5rem 0.9rem",textAlign:"right",fontSize:"0.72rem",color:"#64748B"}}>{Math.round(r.adjSF).toLocaleString()}</td>
+                            <td style={{padding:"0.5rem 0.9rem",textAlign:"right"}}>
+                              <span style={{color:"#94A3B8",fontSize:"0.72rem"}}>$</span>
+                              <input type="number" value={r.rate} onChange={e=>setPricing(p=>({...p,rates:{...p.rates,[r.cat]:parseFloat(e.target.value)||0}}))} style={{width:64,padding:"0.3rem 0.4rem",borderRadius:5,border:"1px solid #E2E8F0",fontSize:"0.75rem",textAlign:"right",fontFamily:"inherit"}}/>
+                            </td>
+                            <td style={{padding:"0.5rem 0.9rem",textAlign:"right",fontSize:"0.8rem",fontWeight:700,color:"#0F172A"}}>${Math.round(r.cost).toLocaleString()}</td>
+                          </tr>
+                        ))}</tbody>
+                      </table>
+                    </div>
+                    <div style={{maxWidth:360,marginLeft:"auto",display:"flex",flexDirection:"column",gap:"0.4rem"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:"0.78rem",color:"#475569"}}><span>Cost subtotal (incl. {pricing.wastePct}% waste)</span><span style={{fontWeight:600}}>${Math.round(costSubtotal).toLocaleString()}</span></div>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:"0.78rem",color:"#475569"}}><span>Margin ({pricing.marginPct}%)</span><span style={{fontWeight:600}}>${Math.round(bidTotal-costSubtotal).toLocaleString()}</span></div>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0.65rem 0.85rem",background:BLUE_PALE,borderRadius:8,border:"1px solid "+BLUE+"40",marginTop:"0.3rem"}}>
+                        <span style={{fontSize:"0.7rem",color:BLUE_DARK,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.05em"}}>Bid Total</span>
+                        <span style={{fontSize:"1.2rem",fontWeight:800,color:BLUE}}>${Math.round(bidTotal).toLocaleString()}</span>
+                      </div>
+                    </div>
+                    <div style={{fontSize:"0.62rem",color:"#94A3B8",marginTop:"1rem",maxWidth:620,lineHeight:1.6}}>Rates are editable ballpark defaults ($/SF installed). The exported Estimate sheet is at cost; the Proposal total applies your margin. Set rates to your real numbers before bidding.</div>
+                  </>
+                )}
               </div>
             )}
           </main>
