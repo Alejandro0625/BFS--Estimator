@@ -355,10 +355,12 @@ function InteractiveView({ results, BACKEND }) {
       <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", alignItems: "center", padding: "1rem", gap: "0.5rem" }}>
         <div style={{ fontSize: "0.65rem", color: "#5a4a20", alignSelf: "flex-start" }}>
           {polyMethod === "bluebeam"
-            ? "📐 Bluebeam polygons — " + displayZones.length + " surfaces from estimator markup · SF values exact"
-            : polyMethod === "vector"
-            ? "📏 Vector mode — " + displayZones.length + " surfaces from PDF geometry"
-            : "AI box mode — upload a Bluebeam-marked PDF for exact shapes"}
+            ? "📐 Bluebeam polygons — " + displayZones.length + " surfaces · SF exact from markup"
+            : polyMethod === "vector_cluster" || polyMethod === "vector"
+            ? "📏 Vector mode — " + displayZones.length + " surfaces from CAD geometry"
+            : polyMethod === "claude_vision"
+            ? "🧠 AI Vision — " + displayZones.length + " surfaces detected from drawing patterns · click to assign"
+            : "No surfaces detected on this page"}
         </div>
 
         {!pageImage ? (
@@ -400,7 +402,7 @@ function InteractiveView({ results, BACKEND }) {
                   const pts = toSVGPoints(zone.points);
                   const labelX = zone.cx * pageDims.width;
                   const labelY = zone.cy * pageDims.height;
-                  const showLabel = a || isActive || zone.source === "bluebeam";
+                  const showLabel = a || isActive || zone.source === "bluebeam" || zone.source === "claude_vision";
                   return (
                     <g key={zone.id} style={{ cursor: "pointer" }}
                       onClick={e => { e.stopPropagation(); setActiveZone(isActive ? null : zone.id); }}>
@@ -425,7 +427,9 @@ function InteractiveView({ results, BACKEND }) {
                             fill="white" fontSize={pageDims.width / 75}
                             fontFamily="Arial" fontWeight="bold"
                           >
-                            {Math.round(zone.area_sf)} SF
+                            {zone.source === "claude_vision" && !a
+                              ? zone.material_type
+                              : Math.round(zone.area_sf) + " SF"}
                           </text>
                         </>
                       )}
