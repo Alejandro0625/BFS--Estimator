@@ -139,7 +139,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments }) {
   const [imgLoaded, setImgLoaded] = useState(false);
   const [pagePolygons, setPagePolygons] = useState([]);
   const [pageDims, setPageDims] = useState({ width:612, height:792 });
-  const [activeZone, setActiveZone] = useState(null);
+  const [activeGroup, setActiveGroup] = useState(null);
   const [imgNaturalSize, setImgNaturalSize] = useState({ w:1, h:1 });
   const [calibMode, setCalibMode] = useState(false);
   const [calibPts, setCalibPts] = useState([]);
@@ -153,7 +153,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments }) {
 
   useEffect(() => {
     if (!pageNum || !results.jobId) return;
-    setPageImage(null); setImgLoaded(false); setPagePolygons([]); setActiveZone(null); setCalibMode(false); setCalibPts([]);
+    setPageImage(null); setImgLoaded(false); setPagePolygons([]); setActiveGroup(null); setCalibMode(false); setCalibPts([]);
     fetch(BACKEND+"/polygons/"+results.jobId+"/"+pageNum)
       .then(r=>r.ok?r.json():{polygons:[],width:612,height:792})
       .then(d=>{setPagePolygons(d.polygons||[]);setPageDims({width:d.width||612,height:d.height||792});})
@@ -183,18 +183,23 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments }) {
     return 8;
   })();
   const lf = linearFt(displayZones, effFtPerInch, pageDims.width, pageDims.height);
+  // Group key: same cluster OR same fill color = same hatch/pattern
+  const gkey = z => z.cluster_id!==undefined ? "c_"+z.cluster_id : (z.fill_color&&z.fill_color.length ? "f_"+z.fill_color.join(",") : "z_"+z.id);
   const colorGroups = {};
-  displayZones.forEach(z=>{const k=z.cluster_id!==undefined?"c_"+z.cluster_id:z.fill_color?"f_"+z.fill_color.join(","):"none";if(!colorGroups[k])colorGroups[k]=[];colorGroups[k].push(z.id);});
+  displayZones.forEach(z=>{const k=gkey(z);if(!colorGroups[k])colorGroups[k]=[];colorGroups[k].push(z.id);});
   const clusterSummary = {};
   displayZones.forEach(z=>{const k=z.cluster_id!==undefined?z.cluster_id:-1;if(!clusterSummary[k])clusterSummary[k]={total_sf:0,count:0,color:"#94A3B8"};clusterSummary[k].total_sf+=z.area_sf||0;clusterSummary[k].count+=1;clusterSummary[k].color=z.cluster_id!==undefined?CLUSTER_COLORS[z.cluster_id%CLUSTER_COLORS.length]:"#94A3B8";});
   const assignKey = id => elevIdx+":"+id;
   const getAssignment = id => assignments[assignKey(id)];
-  const assignZone = (zoneId, mat) => {
-    const zone=displayZones.find(z=>z.id===zoneId);
-    setAssignments(prev=>({...prev,[assignKey(zoneId)]:{...mat,area_sf:zone?.area_sf||0}}));
-    setActiveZone(null);
+  // The currently-selected hatch group (all areas sharing the clicked pattern)
+  const selectedIds = activeGroup ? (colorGroups[activeGroup]||[]) : [];
+  const selectedZones = displayZones.filter(z=>selectedIds.includes(z.id));
+  const selectedSF = selectedZones.reduce((s,z)=>s+(z.area_sf||0),0);
+  const assignGroup = mat => {
+    setAssignments(prev=>{const n={...prev};selectedZones.forEach(z=>{n[assignKey(z.id)]={...mat,area_sf:z.area_sf||0};});return n;});
+    setActiveGroup(null);
   };
-  const removeAssignment = zoneId => { const k=assignKey(zoneId); setAssignments(prev=>{const n={...prev};delete n[k];return n;}); };
+  const removeGroup = () => { setAssignments(prev=>{const n={...prev};selectedIds.forEach(id=>delete n[assignKey(id)]);return n;}); };
   const exportInteractiveExcel = () => {
     const mt={};
     Object.values(assignments).forEach(a=>{const k=a.materialName||a.category||"Panel";if(!mt[k])mt[k]={name:k,sf:0};mt[k].sf+=a.area_sf||0;});
@@ -268,12 +273,13 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments }) {
                 if(a)color=MAT_COLORS[a.category]||"#9CA3AF";
                 else if(zone.cluster_id!==undefined)color=CLUSTER_COLORS[zone.cluster_id%CLUSTER_COLORS.length];
                 else if(zone.fill_color?.length===3){const[r,g,b]=zone.fill_color;color=`rgb(${Math.round(r*255)},${Math.round(g*255)},${Math.round(b*255)})`;}
-                const isActive=activeZone===zone.id;
+                const isSel=activeGroup&&gkey(zone)===activeGroup;
+                const dimmed=activeGroup&&!isSel;
                 const pts=toSVGPoints(zone.points);
                 const lx=zone.cx*pageDims.width,ly=zone.cy*pageDims.height;
-                const showLabel=a||isActive||zone.source==="bluebeam"||zone.source==="claude_vision";
-                return <g key={zone.id} style={{cursor:calibMode?"crosshair":"pointer"}} onClick={e=>{if(calibMode)return;e.stopPropagation();setActiveZone(isActive?null:zone.id);}}>
-                  <polygon points={pts} fill={color} fillOpacity={isActive?0.65:zone.source==="bluebeam"?0.45:a?0.38:0.2} stroke={isActive?"#fff":color} strokeWidth={isActive?2.5:1.5} strokeOpacity={0.9}/>
+                const showLabel=!dimmed&&(a||isSel||zone.source==="bluebeam"||zone.source==="claude_vision");
+                return <g key={zone.id} style={{cursor:calibMode?"crosshair":"pointer"}} onClick={e=>{if(calibMode)return;e.stopPropagation();const k=gkey(zone);setActiveGroup(activeGroup===k?null:k);}}>
+                  <polygon points={pts} fill={color} fillOpacity={dimmed?0.06:isSel?0.6:zone.source==="bluebeam"?0.45:a?0.38:0.22} stroke={isSel?"#fff":color} strokeWidth={isSel?2.5:1.5} strokeOpacity={dimmed?0.25:0.9}/>
                   {showLabel&&<><rect x={lx-32} y={ly-9} width={64} height={18} fill="rgba(0,0,0,0.8)" rx={4}/><text x={lx} y={ly+2} textAnchor="middle" dominantBaseline="middle" fill="white" fontSize={pageDims.width/75} fontFamily="Inter,Arial" fontWeight="bold">{zone.source==="claude_vision"&&!a?zone.material_type:Math.round(zone.area_sf)+" SF"}</text></>}
                 </g>;
               })}
@@ -285,40 +291,37 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments }) {
       </div>
       {/* Right panel */}
       <div style={{width:230,borderLeft:"1px solid "+NAVY_LT,padding:"1rem",overflowY:"auto",flexShrink:0,background:NAVY_MID}}>
-        {activeZone!==null?(
+        {activeGroup?(
           <>
-            <div style={{fontSize:"0.6rem",letterSpacing:"0.12em",color:"#64748B",textTransform:"uppercase",fontWeight:700,marginBottom:"0.5rem"}}>Assign Surface</div>
-            <div style={{padding:"0.5rem 0.65rem",marginBottom:"0.75rem",background:NAVY,borderRadius:6,fontSize:"0.7rem",color:"#CBD5E1",border:"1px solid #2D5280"}}>{Math.round(displayZones.find(z=>z.id===activeZone)?.area_sf||0).toLocaleString()} SF selected</div>
-            {matList.map((mat,i)=>{
-              const azd=displayZones.find(z=>z.id===activeZone);
-              const ck=azd?.cluster_id!==undefined?"c_"+azd.cluster_id:azd?.fill_color?"f_"+azd.fill_color.join(","):null;
-              const scz=ck?(colorGroups[ck]||[]):[];
-              const bulk=scz.length>1;
-              return <div key={i} style={{marginBottom:"0.4rem"}}>
-                <div onClick={()=>assignZone(activeZone,mat)} style={{display:"flex",alignItems:"center",gap:"0.5rem",padding:"0.5rem 0.65rem",cursor:"pointer",background:NAVY,borderRadius:bulk?"6px 6px 0 0":6,border:"1px solid #2D5280",borderBottom:bulk?"none":undefined}} onMouseEnter={e=>e.currentTarget.style.borderColor=BLUE} onMouseLeave={e=>e.currentTarget.style.borderColor="#2D5280"}>
-                  <div style={{width:10,height:10,borderRadius:3,background:MAT_COLORS[mat.category]||"#9CA3AF",flexShrink:0}}/>
-                  <div style={{fontSize:"0.65rem",color:"#CBD5E1",flex:1}}><span style={{color:BLUE,fontWeight:700}}>{mat.id}</span> {mat.name||mat.category}</div>
-                </div>
-                {bulk&&<div onClick={()=>{scz.forEach(zid=>{const z=displayZones.find(dz=>dz.id===zid);setAssignments(prev=>({...prev,[elevIdx+":"+zid]:{...mat,area_sf:z?.area_sf||0}}));});setActiveZone(null);}} style={{padding:"0.3rem 0.65rem",background:"#122035",cursor:"pointer",fontSize:"0.62rem",color:"#4ADE80",border:"1px solid #2D5280",borderTop:"none",borderRadius:"0 0 6px 6px"}} onMouseEnter={e=>e.currentTarget.style.color="#86EFAC"} onMouseLeave={e=>e.currentTarget.style.color="#4ADE80"}>↳ Assign all {scz.length} same-color zones</div>}
-              </div>;
-            })}
-            {getAssignment(activeZone)&&<div onClick={()=>removeAssignment(activeZone)} style={{padding:"0.45rem",marginTop:"0.5rem",textAlign:"center",fontSize:"0.65rem",color:"#F87171",cursor:"pointer",border:"1px solid #7F1D1D",borderRadius:6}}>Remove assignment</div>}
-            <div onClick={()=>setActiveZone(null)} style={{padding:"0.45rem",marginTop:"0.3rem",textAlign:"center",fontSize:"0.65rem",color:"#64748B",cursor:"pointer",border:"1px solid #2D5280",borderRadius:6}}>Cancel</div>
+            <div style={{fontSize:"0.6rem",letterSpacing:"0.12em",color:"#64748B",textTransform:"uppercase",fontWeight:700,marginBottom:"0.5rem"}}>Selected Hatch</div>
+            <div style={{padding:"0.65rem",marginBottom:"0.75rem",background:NAVY_LT,borderRadius:8,border:"1px solid "+BLUE+"55",textAlign:"center"}}>
+              <div style={{fontSize:"1.6rem",fontWeight:800,color:"#fff",lineHeight:1.1}}>{Math.round(selectedSF).toLocaleString()} <span style={{fontSize:"0.7rem",fontWeight:400,color:"#94A3B8"}}>SF</span></div>
+              <div style={{fontSize:"0.6rem",color:"#94A3B8",marginTop:3}}>{selectedZones.length} area{selectedZones.length!==1?"s":""} with this pattern</div>
+            </div>
+            <div style={{fontSize:"0.6rem",color:"#64748B",marginBottom:"0.4rem"}}>Tag this hatch as (optional):</div>
+            {matList.map((mat,i)=>(
+              <div key={i} onClick={()=>assignGroup(mat)} style={{display:"flex",alignItems:"center",gap:"0.5rem",padding:"0.5rem 0.65rem",cursor:"pointer",background:NAVY,borderRadius:6,border:"1px solid #2D5280",marginBottom:"0.35rem"}} onMouseEnter={e=>e.currentTarget.style.borderColor=BLUE} onMouseLeave={e=>e.currentTarget.style.borderColor="#2D5280"}>
+                <div style={{width:10,height:10,borderRadius:3,background:MAT_COLORS[mat.category]||"#9CA3AF",flexShrink:0}}/>
+                <div style={{fontSize:"0.65rem",color:"#CBD5E1",flex:1}}><span style={{color:BLUE,fontWeight:700}}>{mat.id}</span> {mat.name||mat.category}</div>
+              </div>
+            ))}
+            {selectedIds.some(id=>getAssignment(id))&&<div onClick={removeGroup} style={{padding:"0.45rem",marginTop:"0.4rem",textAlign:"center",fontSize:"0.65rem",color:"#F87171",cursor:"pointer",border:"1px solid #7F1D1D",borderRadius:6}}>Remove tag from this hatch</div>}
+            <div onClick={()=>setActiveGroup(null)} style={{padding:"0.45rem",marginTop:"0.3rem",textAlign:"center",fontSize:"0.65rem",color:"#64748B",cursor:"pointer",border:"1px solid #2D5280",borderRadius:6}}>Deselect</div>
           </>
         ):(
           <>
             {Object.keys(clusterSummary).length>0&&<>
-              <div style={{fontSize:"0.6rem",letterSpacing:"0.12em",color:"#64748B",textTransform:"uppercase",fontWeight:700,marginBottom:"0.4rem"}}>Detected Textures</div>
-              <div style={{fontSize:"0.62rem",color:"#475569",marginBottom:"0.65rem"}}>Click a zone → assign material</div>
+              <div style={{fontSize:"0.6rem",letterSpacing:"0.12em",color:"#64748B",textTransform:"uppercase",fontWeight:700,marginBottom:"0.4rem"}}>Hatches Detected</div>
+              <div style={{fontSize:"0.62rem",color:"#475569",marginBottom:"0.65rem"}}>Click a hatch (or any area on the drawing) → all matching areas select &amp; show their SF. Skip brick.</div>
               {Object.entries(clusterSummary).map(([cid,info])=>{
                 const zids=colorGroups["c_"+cid]||[];
                 const assigned=zids.filter(id=>getAssignment(id)).length;
-                return <div key={cid} style={{marginBottom:"0.4rem",padding:"0.5rem 0.65rem",background:NAVY,borderRadius:6,borderLeft:"3px solid "+info.color}}>
+                return <div key={cid} onClick={()=>setActiveGroup("c_"+cid)} style={{marginBottom:"0.4rem",padding:"0.5rem 0.65rem",background:NAVY,borderRadius:6,borderLeft:"3px solid "+info.color,cursor:"pointer"}} onMouseEnter={e=>e.currentTarget.style.background=NAVY_LT} onMouseLeave={e=>e.currentTarget.style.background=NAVY}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:"0.4rem"}}><div style={{width:8,height:8,borderRadius:2,background:info.color}}/><span style={{fontSize:"0.65rem",color:"#94A3B8"}}>Texture {parseInt(cid)+1}</span></div>
-                    <span style={{fontSize:"0.8rem",fontWeight:700,color:"#E2E8F0"}}>{Math.round(info.total_sf).toLocaleString()}</span>
+                    <div style={{display:"flex",alignItems:"center",gap:"0.4rem"}}><div style={{width:8,height:8,borderRadius:2,background:info.color}}/><span style={{fontSize:"0.65rem",color:"#94A3B8"}}>Hatch {parseInt(cid)+1}</span></div>
+                    <span style={{fontSize:"0.8rem",fontWeight:700,color:"#E2E8F0"}}>{Math.round(info.total_sf).toLocaleString()} SF</span>
                   </div>
-                  <div style={{fontSize:"0.6rem",color:assigned>0?"#4ADE80":"#475569",marginTop:3}}>{assigned>0?`✓ ${assigned}/${info.count} assigned`:`${info.count} zone${info.count!==1?"s":""}`}</div>
+                  <div style={{fontSize:"0.6rem",color:assigned>0?"#4ADE80":"#475569",marginTop:3}}>{assigned>0?`✓ ${assigned}/${info.count} tagged`:`${info.count} area${info.count!==1?"s":""} · click to select`}</div>
                 </div>;
               })}
               <div style={{height:1,background:NAVY_LT,margin:"0.75rem 0"}}/>
@@ -352,8 +355,8 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments }) {
               </div>
               <button onClick={exportInteractiveExcel} style={{width:"100%",padding:"0.65rem",background:BLUE,color:"#fff",border:"none",borderRadius:7,fontSize:"0.72rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>↓ Export Excel</button>
             </>}
-            {Object.keys(clusterSummary).length===0&&Object.keys(totals).length===0&&<div style={{fontSize:"0.7rem",color:"#475569",lineHeight:1.8}}>Click any colored zone to assign a material type.</div>}
-            <div style={{marginTop:"1rem",fontSize:"0.6rem",color:"#334155"}}>{Object.keys(assignments).length} zones · {elevations.length} elevations</div>
+            {Object.keys(clusterSummary).length===0&&Object.keys(totals).length===0&&<div style={{fontSize:"0.7rem",color:"#475569",lineHeight:1.8}}>Click any colored area → every area with that same hatch selects and shows its total SF.</div>}
+            <div style={{marginTop:"1rem",fontSize:"0.6rem",color:"#334155"}}>{Object.keys(assignments).length} areas tagged · {elevations.length} elevations</div>
           </>
         )}
       </div>
