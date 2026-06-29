@@ -133,13 +133,12 @@ const buildExcel = (projectName, materials, pricing) => {
 };
 
 /* ── Interactive Takeoff ── */
-function InteractiveView({ results, BACKEND }) {
+function InteractiveView({ results, BACKEND, assignments, setAssignments }) {
   const [elevIdx, setElevIdx] = useState(0);
   const [pageImage, setPageImage] = useState(null);
   const [imgLoaded, setImgLoaded] = useState(false);
   const [pagePolygons, setPagePolygons] = useState([]);
   const [pageDims, setPageDims] = useState({ width:612, height:792 });
-  const [assignments, setAssignments] = useState({});
   const [activeZone, setActiveZone] = useState(null);
   const [imgNaturalSize, setImgNaturalSize] = useState({ w:1, h:1 });
   const [calibMode, setCalibMode] = useState(false);
@@ -474,6 +473,7 @@ export default function BFSEstimator() {
   const [viewMode, setViewMode] = useState("table");
   const [dragOver, setDragOver] = useState(false);
   const [pricing, setPricing] = useState({ rates:{}, wastePct:15, marginPct:20 });
+  const [assignments, setAssignments] = useState({});
   const fileRef  = useRef();
   const logRef   = useRef();
   const pollRef  = useRef(null);
@@ -509,7 +509,7 @@ export default function BFSEstimator() {
 
   const run = async()=>{
     if(!file)return;
-    setPhase("running");setLog([]);setErrMsg("");setResults(null);seenLogs.current=0;
+    setPhase("running");setLog([]);setErrMsg("");setResults(null);setAssignments({});seenLogs.current=0;
     try{
       setLog([{msg:"Uploading PDF...",level:"info"}]);
       const fd=new FormData();fd.append("pdf",file);
@@ -549,11 +549,17 @@ export default function BFSEstimator() {
   }:null;
   const summaryData = summary ? summary() : null;
   const grandAdj = summaryData ? Object.values(summaryData).reduce((s,v)=>s+v.adj,0) : 0;
-  const priceRows = summaryData ? Object.entries(summaryData).map(([cat,{net}])=>{
+  // Reviewed takeoff = what the user assigned in Interactive; drives the bid when present
+  const reviewedSummary = Object.values(assignments).reduce((acc,a)=>{
+    const cat=a.category||a.materialName||"Panel"; if(!acc[cat])acc[cat]={net:0}; acc[cat].net+=a.area_sf||0; return acc;
+  },{});
+  const hasReviewed = Object.keys(reviewedSummary).length>0;
+  const pricingSource = hasReviewed ? reviewedSummary : (summaryData||{});
+  const priceRows = Object.entries(pricingSource).map(([cat,{net}])=>{
     const rate = pricing.rates[cat]!=null ? pricing.rates[cat] : (DEFAULT_RATES[cat]??DEFAULT_RATES.Other);
     const adjSF = net*(1+pricing.wastePct/100);
     return { cat, net, adjSF, rate, cost:adjSF*rate };
-  }) : [];
+  });
   const costSubtotal = priceRows.reduce((s,r)=>s+r.cost,0);
   const bidTotal = costSubtotal*(1+pricing.marginPct/100);
   const exportPricedExcel=()=>{
@@ -592,7 +598,7 @@ export default function BFSEstimator() {
           <div style={{display:"flex",gap:"0.5rem"}}>
             <button onClick={exportExcel} style={{padding:"0.45rem 1rem",background:"transparent",color:"rgba(255,255,255,0.7)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↓ Excel</button>
             <button onClick={exportPDF} disabled={pdfLoading} style={{padding:"0.45rem 1rem",background:BLUE,color:"#fff",border:"none",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↓ {pdfLoading?"Generating...":"Evidence PDF"}</button>
-            <button onClick={()=>{setFile(null);setPhase("idle");setResults(null);setLog([]);}} style={{padding:"0.45rem 1rem",background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.6)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↺ New</button>
+            <button onClick={()=>{setFile(null);setPhase("idle");setResults(null);setLog([]);setAssignments({});}} style={{padding:"0.45rem 1rem",background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.6)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↺ New</button>
           </div>
         )}
       </header>
@@ -803,7 +809,7 @@ export default function BFSEstimator() {
           {/* Main */}
           <main style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
             {viewMode==="interactive"&&(
-              <div style={{flex:1,overflow:"hidden"}}><InteractiveView results={results} BACKEND={BACKEND}/></div>
+              <div style={{flex:1,overflow:"hidden"}}><InteractiveView results={results} BACKEND={BACKEND} assignments={assignments} setAssignments={setAssignments}/></div>
             )}
             {viewMode==="edit"&&(
               <div style={{flex:1,overflow:"hidden"}}><EditorView results={results} BACKEND={BACKEND}/></div>
@@ -862,6 +868,7 @@ export default function BFSEstimator() {
                   <div style={{fontSize:"0.8rem",color:"#94A3B8"}}>No materials detected yet — run an analysis first.</div>
                 ):(
                   <>
+                    <div style={{fontSize:"0.64rem",padding:"0.5rem 0.75rem",borderRadius:7,marginBottom:"1rem",background:hasReviewed?"#F0FDF4":"#F8FAFC",border:"1px solid "+(hasReviewed?"#BBF7D0":"#E2E8F0"),color:hasReviewed?"#15803D":"#64748B"}}>{hasReviewed?`✓ Pricing your reviewed takeoff — ${Object.keys(reviewedSummary).length} material${Object.keys(reviewedSummary).length!==1?"s":""} you assigned in Interactive Takeoff`:"Pricing the AI's auto-detected materials. Assign surfaces in Interactive Takeoff to price your reviewed numbers instead."}</div>
                     <div style={{display:"flex",gap:"1rem",marginBottom:"1rem",flexWrap:"wrap"}}>
                       <div style={{display:"flex",flexDirection:"column",gap:"0.25rem"}}>
                         <label style={{fontSize:"0.6rem",color:"#94A3B8",textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:600}}>Waste %</label>
