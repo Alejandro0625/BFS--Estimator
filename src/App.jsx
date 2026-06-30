@@ -510,6 +510,59 @@ const STATUS_STYLE = {
   attention: { bg:"#FEE2E2", fg:"#B91C1C", label:"⚠ Check" },
 };
 
+/* ── Scope tab: read the project scope document, cross-check the bid ── */
+function ScopeView() {
+  const [scopeFile, setScopeFile] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
+  const fileRef = useRef();
+  const handle = f => { if(f) setScopeFile(f); };
+  return (
+    <div style={{flex:1,overflowY:"auto",padding:"2.5rem 2rem"}}>
+      <div style={{maxWidth:780,margin:"0 auto"}}>
+        <div style={{fontSize:"0.7rem",letterSpacing:"0.18em",color:BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"0.4rem"}}>Scope Review</div>
+        <h2 style={{fontSize:"1.5rem",fontWeight:800,color:"#0F172A",margin:"0 0 0.5rem",letterSpacing:"-0.02em"}}>Read the scope, cover the whole bid</h2>
+        <p style={{fontSize:"0.85rem",color:"#64748B",lineHeight:1.6,margin:"0 0 1.5rem"}}>Upload the project scope document — the sheet that lists every work item. The system pulls out every scope line, cross-checks it against your takeoff, and flags anything missing so nothing slips through the bid.</p>
+        <div
+          onClick={()=>fileRef.current?.click()}
+          onDrop={e=>{e.preventDefault();setDragOver(false);handle(e.dataTransfer.files[0]);}}
+          onDragOver={e=>{e.preventDefault();setDragOver(true);}}
+          onDragLeave={()=>setDragOver(false)}
+          style={{border:`2px dashed ${dragOver?BLUE:scopeFile?"#22C55E":"#CBD5E1"}`,borderRadius:14,padding:"2rem",textAlign:"center",cursor:"pointer",background:dragOver?BLUE_PALE:scopeFile?"#F0FDF4":"#fff",transition:"all 0.2s"}}>
+          <input ref={fileRef} type="file" accept=".pdf,.doc,.docx,.txt,.xlsx,.csv" style={{display:"none"}} onChange={e=>handle(e.target.files[0])}/>
+          {!scopeFile?(<>
+            <div style={{fontSize:"2.2rem",marginBottom:"0.4rem",opacity:0.5}}>📄</div>
+            <div style={{fontSize:"0.95rem",fontWeight:600,color:"#334155"}}>Drop the scope document here</div>
+            <div style={{fontSize:"0.75rem",color:"#94A3B8",marginTop:"0.25rem"}}>PDF, Word, Excel, or text · or click to browse</div>
+          </>):(<>
+            <div style={{fontSize:"2rem",marginBottom:"0.35rem"}}>✅</div>
+            <div style={{fontSize:"0.95rem",fontWeight:700,color:"#15803D",wordBreak:"break-all"}}>{scopeFile.name}</div>
+            <div style={{fontSize:"0.72rem",color:"#16A34A",marginTop:"0.2rem"}}>Loaded · {(scopeFile.size/1024).toFixed(0)} KB</div>
+          </>)}
+        </div>
+        <div style={{marginTop:"1.5rem",display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.75rem"}}>
+          {[
+            ["🧾","Scope line items","Every work item extracted into a clean checklist"],
+            ["🔗","Cross-check vs takeoff","Match scope to your measured materials — catch gaps"],
+            ["❓","RFI flags","What's missing or unclear, with draft questions for the GC"],
+            ["📝","Proposal scope language","Inclusions & exclusions, ready to drop into the bid"],
+          ].map(([ic,t,d])=>(
+            <div key={t} style={{padding:"0.85rem 1rem",background:"#fff",borderRadius:10,border:"1px solid #EEF2F7"}}>
+              <div style={{fontSize:"1.1rem",marginBottom:"0.3rem"}}>{ic}</div>
+              <div style={{fontSize:"0.78rem",fontWeight:700,color:"#0F172A"}}>{t}</div>
+              <div style={{fontSize:"0.68rem",color:"#94A3B8",marginTop:"0.15rem",lineHeight:1.4}}>{d}</div>
+            </div>
+          ))}
+        </div>
+        {scopeFile&&(
+          <div style={{marginTop:"1.25rem",padding:"0.85rem 1rem",background:"#FFFBEB",borderRadius:10,border:"1px solid #FDE68A",fontSize:"0.75rem",color:"#92400E",lineHeight:1.5}}>
+            Scope document loaded. The extraction engine is being tuned to your scope format — once it reads your sample correctly, this tab will list every scope line and cross-check it against the takeoff automatically.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ── Main App ── */
 export default function BFSEstimator() {
   const [file, setFile]       = useState(null);
@@ -521,6 +574,7 @@ export default function BFSEstimator() {
   const [pdfLoading, setPdfLoading] = useState(false);
   const [viewMode, setViewMode] = useState("table");
   const [dragOver, setDragOver] = useState(false);
+  const [appTab, setAppTab] = useState("takeoff");
   const [pricing, setPricing] = useState({ rates:{}, wastePct:15, marginPct:20 });
   const [assignments, setAssignments] = useState({});
   const [savedBids, setSavedBids] = useState([]);
@@ -663,7 +717,7 @@ export default function BFSEstimator() {
   const showUploadScreen = !showResults;
 
   return (
-    <div style={{fontFamily:"'Inter','Segoe UI',-apple-system,sans-serif",background:showUploadScreen?"#0C1B2E":"#F0F4F8",minHeight:"100vh",display:"flex",flexDirection:"column",color:"#1E293B"}}>
+    <div style={{fontFamily:"'Inter','Segoe UI',-apple-system,sans-serif",background:(appTab==="takeoff"&&showUploadScreen)?"#0C1B2E":"#F0F4F8",minHeight:"100vh",display:"flex",flexDirection:"column",color:"#1E293B"}}>
 
       {/* ── Header ── */}
       <header style={{background:NAVY,height:60,padding:"0 1.75rem",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,boxShadow:"0 1px 0 rgba(255,255,255,0.06)",zIndex:10}}>
@@ -675,15 +729,27 @@ export default function BFSEstimator() {
             <div style={{fontSize:"0.95rem",fontWeight:700,color:"#fff",letterSpacing:"-0.01em"}}>AI Panel Estimator</div>
           </div>
         </div>
-        {showResults&&(
-          <div style={{display:"flex",gap:"0.5rem"}}>
-            <button onClick={exportExcel} style={{padding:"0.45rem 1rem",background:"transparent",color:"rgba(255,255,255,0.7)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↓ Excel</button>
-            <button onClick={exportPDF} disabled={pdfLoading} style={{padding:"0.45rem 1rem",background:BLUE,color:"#fff",border:"none",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↓ {pdfLoading?"Generating...":"Evidence PDF"}</button>
-            <button onClick={saveBid} style={{padding:"0.45rem 1rem",background:"transparent",color:"rgba(255,255,255,0.7)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>💾 Save</button>
-            <button onClick={()=>{setFile(null);setPhase("idle");setResults(null);setLog([]);setAssignments({});}} style={{padding:"0.45rem 1rem",background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.6)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↺ New</button>
+        <div style={{display:"flex",alignItems:"center",gap:"1rem"}}>
+          {appTab==="takeoff"&&showResults&&(
+            <div style={{display:"flex",gap:"0.5rem"}}>
+              <button onClick={exportExcel} style={{padding:"0.45rem 1rem",background:"transparent",color:"rgba(255,255,255,0.7)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↓ Excel</button>
+              <button onClick={exportPDF} disabled={pdfLoading} style={{padding:"0.45rem 1rem",background:BLUE,color:"#fff",border:"none",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↓ {pdfLoading?"Generating...":"Evidence PDF"}</button>
+              <button onClick={saveBid} style={{padding:"0.45rem 1rem",background:"transparent",color:"rgba(255,255,255,0.7)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>💾 Save</button>
+              <button onClick={()=>{setFile(null);setPhase("idle");setResults(null);setLog([]);setAssignments({});}} style={{padding:"0.45rem 1rem",background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.6)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↺ New</button>
+            </div>
+          )}
+          {/* Top-level nav tabs */}
+          <div style={{display:"flex",gap:"0.2rem",background:"rgba(255,255,255,0.06)",borderRadius:9,padding:"0.2rem"}}>
+            {[["takeoff","Takeoff"],["scope","Scope"]].map(([t,label])=>(
+              <button key={t} onClick={()=>setAppTab(t)} style={{padding:"0.4rem 1rem",borderRadius:7,border:"none",fontSize:"0.74rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer",background:appTab===t?BLUE:"transparent",color:appTab===t?"#fff":"rgba(255,255,255,0.55)",transition:"all 0.15s"}}>{label}</button>
+            ))}
           </div>
-        )}
+        </div>
       </header>
+
+      {appTab==="scope"&&<ScopeView/>}
+
+      {appTab==="takeoff"&&(<>
 
       {/* ══ UPLOAD SCREEN ══ */}
       {showUploadScreen&&(
@@ -1048,6 +1114,7 @@ export default function BFSEstimator() {
           </main>
         </div>
       )}
+      </>)}
     </div>
   );
 }
