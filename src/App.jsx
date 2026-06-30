@@ -873,6 +873,7 @@ function ManualView({ results, BACKEND }) {
   const [selId, setSelId] = useState(null);
   const [curColor, setCurColor] = useState("#4A86C8");
   const [colorNames, setColorNames] = useState({});   // color -> material name
+  const [taught, setTaught] = useState(null);
 
   useEffect(() => {
     if (!pageNum || !results?.jobId) { setImg(null); return; }
@@ -929,6 +930,17 @@ function ManualView({ results, BACKEND }) {
   };
   const rename = (id, nm) => setShapes(prev => prev.map(s => s.id === id ? { ...s, name: nm } : s));
   const del = id => { setShapes(prev => prev.filter(s => s.id !== id)); setSelId(null); };
+  const teach = async () => {
+    if (!results?.jobId || !shapes.length) { setTaught("Draw at least one shape first"); return; }
+    setTaught("Saving…");
+    try {
+      const body = { jobId: results.jobId, page: pageNum, source: "draw",
+        shapes: shapes.map(s => ({ points: s.points, name: colorNames[s.color] || s.name, color: s.color, type: s.type })) };
+      const r = await fetch(BACKEND + "/learn", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const d = await r.json();
+      setTaught(d.ok ? `✓ Saved — the AI now has ${d.total} example${d.total === 1 ? "" : "s"} to learn from` : "Save failed");
+    } catch { setTaught("Save failed — check connection"); }
+  };
 
   const btn = (active) => ({ flex: 1, padding: "0.45rem", borderRadius: 7, border: "1px solid " + (active ? BLUE : "#2D5280"), background: active ? BLUE : "transparent", color: active ? "#fff" : "#94A3B8", fontSize: "0.66rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" });
 
@@ -1005,6 +1017,9 @@ function ManualView({ results, BACKEND }) {
           <div style={{ fontSize: "0.6rem", color: "#4ADE80", fontWeight: 700 }}>NET TOTAL (all colors)</div>
           <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "#4ADE80" }}>{Math.round(total).toLocaleString()} <span style={{ fontSize: "0.65rem", fontWeight: 400 }}>SF</span></div>
         </div>
+        <button onClick={teach} disabled={!shapes.length} style={{ width: "100%", marginTop: "0.6rem", padding: "0.55rem", background: shapes.length ? "#7C3AED" : "#3B2C5A", border: "none", borderRadius: 8, color: "#fff", fontSize: "0.72rem", fontWeight: 700, cursor: shapes.length ? "pointer" : "default", fontFamily: "inherit" }}>🧠 Save &amp; teach the AI</button>
+        {taught && <div style={{ fontSize: "0.6rem", color: "#A78BFA", marginTop: "0.4rem", textAlign: "center" }}>{taught}</div>}
+        <div style={{ fontSize: "0.56rem", color: "#475569", marginTop: "0.4rem", lineHeight: 1.5 }}>When she has to draw by hand, this saves it as a lesson — the AI learns to do it next time.</div>
       </div>
     </div>
   );
