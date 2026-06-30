@@ -181,14 +181,14 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments }) {
   }));
   // When the user calibrates the scale, recompute SF from polygon geometry (real polygons only)
   const displayZones = calibFt
-    ? rawZones.map(z => (z.source && z.source!=="box")
+    ? rawZones.map(z => (z.source && z.source!=="box" && z.source!=="texture")
         ? {...z, area_sf: polyAreaSF(z.points, calibFt, pageDims.width, pageDims.height)}
-        : z)
+        : z)   // texture groups keep their backend net SF (openings already cut out)
     : rawZones;
   // Effective scale: calibrated value, else back it out from a zone's known SF + geometry
   const effFtPerInch = calibFt || (()=>{
     for(const z of rawZones){
-      if(z.area_sf>0 && z.points?.length>=3){
+      if(z.area_sf>0 && z.points?.length>=3 && z.source!=="texture"){
         const shoePts = polyAreaSF(z.points, 72, pageDims.width, pageDims.height);
         if(shoePts>0) return 72*Math.sqrt(z.area_sf/shoePts);
       }
