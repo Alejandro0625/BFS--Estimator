@@ -146,6 +146,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments }) {
   const [pagePolygons, setPagePolygons] = useState([]);
   const [pageDims, setPageDims] = useState({ width:612, height:792 });
   const [activeGroup, setActiveGroup] = useState(null);
+  const [groupNameDraft, setGroupNameDraft] = useState("");
   const [imgNaturalSize, setImgNaturalSize] = useState({ w:1, h:1 });
   const [calibMode, setCalibMode] = useState(false);
   const [calibPts, setCalibPts] = useState([]);
@@ -209,6 +210,15 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments }) {
   const selectedZones = displayZones.filter(z=>selectedIds.includes(z.id));
   const selectedSF = selectedZones.reduce((s,z)=>s+(z.area_sf||0),0);
   const groupSig = hatchSig(selectedZones.find(z=>hatchSig(z)));
+  // Pre-fill the rename box with the group's current name when a group is selected
+  useEffect(()=>{
+    if(!activeGroup){ setGroupNameDraft(""); return; }
+    const z0=selectedZones[0];
+    const cur=selectedZones.map(z=>getAssignment(z.id)).find(a=>a)?.name || z0?.material || z0?.category || "";
+    setGroupNameDraft(cur);
+  // eslint-disable-next-line
+  },[activeGroup]);
+  const renameGroup = (nm)=>{ const v=(nm||"").trim(); if(v) assignGroup({ id:v, name:v, category:v }); };
   const learnedMat = groupSig ? loadLearned()[groupSig] : null;
   const assignGroup = mat => {
     setAssignments(prev=>{const n={...prev};selectedZones.forEach(z=>{n[assignKey(z.id)]={...mat,area_sf:z.area_sf||0};});return n;});
@@ -316,6 +326,13 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments }) {
             <div style={{padding:"0.65rem",marginBottom:"0.75rem",background:NAVY_LT,borderRadius:8,border:"1px solid "+BLUE+"55",textAlign:"center"}}>
               <div style={{fontSize:"1.6rem",fontWeight:800,color:"#fff",lineHeight:1.1}}>{Math.round(selectedSF).toLocaleString()} <span style={{fontSize:"0.7rem",fontWeight:400,color:"#94A3B8"}}>SF</span></div>
               <div style={{fontSize:"0.6rem",color:"#94A3B8",marginTop:3}}>{selectedZones.length} area{selectedZones.length!==1?"s":""} with this pattern</div>
+            </div>
+            <div style={{marginBottom:"0.7rem"}}>
+              <div style={{fontSize:"0.6rem",color:"#64748B",marginBottom:"0.3rem"}}>Name this group (shows on the Excel):</div>
+              <div style={{display:"flex",gap:"0.35rem"}}>
+                <input value={groupNameDraft} onChange={e=>setGroupNameDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")renameGroup(groupNameDraft);}} placeholder="e.g. Metal Panel" style={{flex:1,minWidth:0,background:NAVY,border:"1px solid #2D5280",borderRadius:6,color:"#fff",fontSize:"0.7rem",padding:"0.4rem 0.5rem",fontFamily:"inherit"}}/>
+                <button onClick={()=>renameGroup(groupNameDraft)} style={{background:BLUE,border:"none",borderRadius:6,color:"#fff",fontSize:"0.66rem",fontWeight:700,padding:"0 0.65rem",cursor:"pointer",fontFamily:"inherit"}}>Set</button>
+              </div>
             </div>
             {learnedMat&&<div onClick={()=>assignGroup({id:learnedMat.id,name:learnedMat.materialName,category:learnedMat.category})} style={{display:"flex",alignItems:"center",gap:"0.5rem",padding:"0.5rem 0.65rem",cursor:"pointer",background:"#064E3B",borderRadius:6,border:"1px solid #10B981",marginBottom:"0.6rem"}}>
               <span style={{fontSize:"0.85rem"}}>✨</span>
