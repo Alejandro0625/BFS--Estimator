@@ -855,6 +855,141 @@ function QueueView({ onOpen }) {
   );
 }
 
+/* ── Manual takeoff: draw the facade, subtract cut-outs, get the area (Bluebeam-style) ── */
+function ManualView({ results, BACKEND }) {
+  const elevations = (results?.takeoffData || []).filter(e => e.pageNumber);
+  const [elevIdx, setElevIdx] = useState(0);
+  const elev = elevations[elevIdx]; const pageNum = elev?.pageNumber;
+  const [img, setImg] = useState(null);
+  const [pageDims, setPageDims] = useState({ width: 612, height: 792 });
+  const [stageW, setStageW] = useState(760);
+  const wrapRef = useRef();
+  const [shapes, setShapes] = useState([]);     // {id, points[[nx,ny]], type:"add"|"cut", name, color}
+  const [draft, setDraft] = useState([]);        // points being placed
+  const [mode, setMode] = useState("add");       // "add" | "cut" | "calib"
+  const [calib, setCalib] = useState(null);      // { ftPerPx }
+  const [calibPts, setCalibPts] = useState([]);
+  const [realFt, setRealFt] = useState("");
+  const [selId, setSelId] = useState(null);
+
+  useEffect(() => {
+    if (!pageNum || !results?.jobId) { setImg(null); return; }
+    setShapes([]); setDraft([]); setSelId(null); setImg(null); setCalib(null); setCalibPts([]);
+    const im = new window.Image();
+    im.crossOrigin = "anonymous";
+    im.src = BACKEND + "/page-image/" + results.jobId + "/" + pageNum;
+    im.onload = () => { setImg(im); setPageDims({ width: im.naturalWidth || 612, height: im.naturalHeight || 792 }); };
+  }, [elevIdx, pageNum, results?.jobId, BACKEND]);
+
+  useEffect(() => {
+    const u = () => { if (wrapRef.current) setStageW(Math.max(320, wrapRef.current.offsetWidth - 32)); };
+    u(); window.addEventListener("resize", u); return () => window.removeEventListener("resize", u);
+  }, []);
+
+  const sc = stageW / pageDims.width;
+  const stageH = pageDims.height * sc;
+  const COLS = ["#4A86C8", "#E85DA0", "#3FB36B", "#F0A23C", "#9B6FD4", "#46C5C5"];
+
+  const shoelacePx = pts => {
+    let a = 0; const n = pts.length;
+    for (let i = 0; i < n; i++) {
+      const x1 = pts[i][0] * pageDims.width, y1 = pts[i][1] * pageDims.height;
+      const x2 = pts[(i + 1) % n][0] * pageDims.width, y2 = pts[(i + 1) % n][1] * pageDims.height;
+      a += x1 * y2 - x2 * y1;
+    }
+    return Math.abs(a) / 2;
+  };
+  const areaSF = s => calib ? shoelacePx(s.points) * calib.ftPerPx * calib.ftPerPx : 0;
+  const total = shapes.reduce((t, s) => t + (s.type === "cut" ? -areaSF(s) : areaSF(s)), 0);
+
+  const onDown = e => {
+    const st = e.target.getStage(); const pos = st.getPointerPosition(); if (!pos) return;
+    const nx = pos.x / stageW, ny = pos.y / stageH;
+    if (mode === "calib") { setCalibPts(prev => [...prev, [nx, ny]].slice(-2)); return; }
+    setDraft(prev => [...prev, [nx, ny]]);
+  };
+  const finish = () => {
+    if (draft.length < 3) return;
+    setShapes(prev => [...prev, { id: Date.now(), points: draft, type: mode === "cut" ? "cut" : "add",
+      name: mode === "cut" ? "Cutout" : "Area " + (prev.filter(s => s.type !== "cut").length + 1),
+      color: mode === "cut" ? "#EF4444" : COLS[prev.length % COLS.length] }]);
+    setDraft([]);
+  };
+  const applyCalib = () => {
+    const ft = parseFloat(realFt);
+    if (calibPts.length < 2 || !ft) return;
+    const [p1, p2] = calibPts;
+    const dpx = Math.hypot((p2[0] - p1[0]) * pageDims.width, (p2[1] - p1[1]) * pageDims.height);
+    if (dpx > 0) setCalib({ ftPerPx: ft / dpx });
+    setCalibPts([]); setMode("add");
+  };
+  const rename = (id, nm) => setShapes(prev => prev.map(s => s.id === id ? { ...s, name: nm } : s));
+  const del = id => { setShapes(prev => prev.filter(s => s.id !== id)); setSelId(null); };
+
+  const btn = (active) => ({ flex: 1, padding: "0.45rem", borderRadius: 7, border: "1px solid " + (active ? BLUE : "#2D5280"), background: active ? BLUE : "transparent", color: active ? "#fff" : "#94A3B8", fontSize: "0.66rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" });
+
+  return (
+    <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden", background: NAVY, fontFamily: "'Inter','Segoe UI',sans-serif" }}>
+      <div style={{ width: 160, borderRight: "1px solid " + NAVY_LT, overflowY: "auto", flexShrink: 0, background: NAVY_MID }}>
+        <div style={{ padding: "0.8rem", fontSize: "0.6rem", letterSpacing: "0.12em", color: "#64748B", textTransform: "uppercase", fontWeight: 700, borderBottom: "1px solid " + NAVY_LT }}>Pages</div>
+        {elevations.map((e, i) => <div key={i} onClick={() => setElevIdx(i)} style={{ padding: "0.6rem 0.8rem", cursor: "pointer", borderBottom: "1px solid " + NAVY_LT, background: i === elevIdx ? NAVY_LT : "transparent", fontSize: "0.7rem", color: i === elevIdx ? "#E2E8F0" : "#94A3B8", borderLeft: i === elevIdx ? "3px solid " + BLUE : "3px solid transparent" }}>{e.title || "Page " + e.pageNumber}</div>)}
+      </div>
+      <div ref={wrapRef} style={{ flex: 1, overflow: "auto", padding: "1rem" }}>
+        <div style={{ fontSize: "0.62rem", color: "#94A3B8", marginBottom: "0.5rem" }}>
+          {!calib ? "① Set scale first: click 'Set scale', click two points a known distance apart, type the feet." : mode === "cut" ? "Cut-out mode: click around a window/door, then Finish — it subtracts." : "Click around the wall, then Finish. SF uses your scale."}
+        </div>
+        {img ? <Stage width={stageW} height={stageH} onMouseDown={onDown}>
+          <Layer>
+            <KImage image={img} width={stageW} height={stageH} />
+            {shapes.map(s => {
+              const flat = s.points.flatMap(([nx, ny]) => [nx * stageW, ny * stageH]);
+              const sel = selId === s.id;
+              return <Line key={s.id} points={flat} closed fill={s.color + (s.type === "cut" ? "55" : sel ? "66" : "40")}
+                stroke={sel ? "#fff" : s.color} strokeWidth={sel ? 2.5 : 1.5} dash={s.type === "cut" ? [8, 5] : undefined}
+                onClick={() => setSelId(s.id)} onTap={() => setSelId(s.id)} />;
+            })}
+            {draft.length > 0 && <Line points={draft.flatMap(([nx, ny]) => [nx * stageW, ny * stageH])} stroke="#FBBF24" strokeWidth={2} dash={[6, 4]} />}
+            {draft.map(([nx, ny], i) => <Circle key={i} x={nx * stageW} y={ny * stageH} radius={4} fill="#FBBF24" />)}
+            {calibPts.map(([nx, ny], i) => <Circle key={"c" + i} x={nx * stageW} y={ny * stageH} radius={5} fill="#10B981" stroke="#fff" strokeWidth={1} />)}
+            {calibPts.length === 2 && <Line points={calibPts.flatMap(([nx, ny]) => [nx * stageW, ny * stageH])} stroke="#10B981" strokeWidth={2} />}
+          </Layer>
+        </Stage> : <div style={{ color: "#475569", fontSize: "0.8rem", marginTop: "3rem" }}>{elevations.length ? "Loading drawing…" : "Run a drawing in the Takeoff tab first, then draw on it here."}</div>}
+      </div>
+      <div style={{ width: 230, borderLeft: "1px solid " + NAVY_LT, padding: "1rem", background: NAVY_MID, overflowY: "auto", flexShrink: 0 }}>
+        <div style={{ display: "flex", gap: "0.3rem", marginBottom: "0.5rem" }}>
+          <button style={btn(mode === "add")} onClick={() => setMode("add")}>+ Area</button>
+          <button style={btn(mode === "cut")} onClick={() => setMode("cut")}>– Cut-out</button>
+          <button style={btn(mode === "calib")} onClick={() => { setMode("calib"); setCalibPts([]); }}>Scale</button>
+        </div>
+        {mode === "calib" && <div style={{ background: NAVY_LT, borderRadius: 8, padding: "0.6rem", marginBottom: "0.6rem" }}>
+          <div style={{ fontSize: "0.6rem", color: "#94A3B8", marginBottom: "0.35rem" }}>Click 2 points on a known dimension ({calibPts.length}/2), then enter feet:</div>
+          <div style={{ display: "flex", gap: "0.35rem" }}>
+            <input value={realFt} onChange={e => setRealFt(e.target.value)} placeholder="feet" style={{ flex: 1, minWidth: 0, background: NAVY, border: "1px solid #2D5280", borderRadius: 6, color: "#fff", fontSize: "0.7rem", padding: "0.4rem", fontFamily: "inherit" }} />
+            <button onClick={applyCalib} style={{ background: BLUE, border: "none", borderRadius: 6, color: "#fff", fontSize: "0.66rem", fontWeight: 700, padding: "0 0.6rem", cursor: "pointer", fontFamily: "inherit" }}>Set</button>
+          </div>
+        </div>}
+        {draft.length > 0 && <button onClick={finish} style={{ width: "100%", padding: "0.5rem", marginBottom: "0.6rem", background: "#15803D", border: "none", borderRadius: 7, color: "#fff", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>✓ Finish shape ({draft.length} pts)</button>}
+        <div style={{ fontSize: "0.58rem", color: calib ? "#4ADE80" : "#F87171", marginBottom: "0.6rem" }}>{calib ? "✓ Scale set" : "⚠ Set scale to get SF"}</div>
+        <div style={{ fontSize: "0.6rem", letterSpacing: "0.1em", color: "#64748B", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.4rem" }}>Shapes ({shapes.length})</div>
+        {shapes.map(s => {
+          const sel = selId === s.id;
+          return <div key={s.id} onClick={() => setSelId(s.id)} style={{ padding: "0.5rem 0.6rem", marginBottom: "0.35rem", background: sel ? NAVY_LT : NAVY, borderRadius: 6, cursor: "pointer", borderLeft: "3px solid " + s.color }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.4rem" }}>
+              <input value={s.name} onClick={e => e.stopPropagation()} onChange={e => rename(s.id, e.target.value)} style={{ flex: 1, minWidth: 0, background: "transparent", border: "none", color: "#CBD5E1", fontSize: "0.65rem", fontFamily: "inherit" }} />
+              <span style={{ fontSize: "0.72rem", fontWeight: 700, color: s.type === "cut" ? "#F87171" : "#E2E8F0" }}>{s.type === "cut" ? "–" : ""}{Math.round(areaSF(s)).toLocaleString()} SF</span>
+            </div>
+            {sel && <div onClick={e => { e.stopPropagation(); del(s.id); }} style={{ marginTop: "0.4rem", fontSize: "0.6rem", color: "#F87171", textAlign: "center", border: "1px solid #7F1D1D", borderRadius: 5, padding: "0.25rem", cursor: "pointer" }}>Delete</div>}
+          </div>;
+        })}
+        <div style={{ marginTop: "0.75rem", padding: "0.6rem 0.75rem", background: NAVY_LT, borderRadius: 8, border: "1px solid " + BLUE + "40" }}>
+          <div style={{ fontSize: "0.6rem", color: "#4ADE80", fontWeight: 700 }}>NET TOTAL</div>
+          <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "#4ADE80" }}>{Math.round(total).toLocaleString()} <span style={{ fontSize: "0.65rem", fontWeight: 400 }}>SF</span></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main App ── */
 export default function BFSEstimator() {
   const [file, setFile]       = useState(null);
@@ -1040,7 +1175,7 @@ export default function BFSEstimator() {
           )}
           {/* Top-level nav tabs */}
           <div style={{display:"flex",gap:"0.2rem",background:"rgba(255,255,255,0.06)",borderRadius:9,padding:"0.2rem"}}>
-            {[["takeoff","Takeoff"],["queue","Queue"],["scope","Scope"],["model","Model"]].map(([t,label])=>(
+            {[["takeoff","Takeoff"],["queue","Queue"],["manual","Draw"],["scope","Scope"],["model","Model"]].map(([t,label])=>(
               <button key={t} onClick={()=>setAppTab(t)} style={{padding:"0.4rem 1rem",borderRadius:7,border:"none",fontSize:"0.74rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer",background:appTab===t?BLUE:"transparent",color:appTab===t?"#fff":"rgba(255,255,255,0.55)",transition:"all 0.15s"}}>{label}</button>
             ))}
           </div>
@@ -1050,6 +1185,7 @@ export default function BFSEstimator() {
       {appTab==="scope"&&<ScopeView/>}
       {appTab==="model"&&<ModelView/>}
       {appTab==="queue"&&<QueueView onOpen={openResult}/>}
+      {appTab==="manual"&&<ManualView results={results} BACKEND={BACKEND}/>}
 
       {appTab==="takeoff"&&(<>
 
