@@ -520,8 +520,8 @@ function ScopeView() {
     <div style={{flex:1,overflowY:"auto",padding:"2.5rem 2rem"}}>
       <div style={{maxWidth:780,margin:"0 auto"}}>
         <div style={{fontSize:"0.7rem",letterSpacing:"0.18em",color:BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"0.4rem"}}>Scope Review</div>
-        <h2 style={{fontSize:"1.5rem",fontWeight:800,color:"#0F172A",margin:"0 0 0.5rem",letterSpacing:"-0.02em"}}>Read the scope, cover the whole bid</h2>
-        <p style={{fontSize:"0.85rem",color:"#64748B",lineHeight:1.6,margin:"0 0 1.5rem"}}>Upload the project scope document — the sheet that lists every work item. The system pulls out every scope line, cross-checks it against your takeoff, and flags anything missing so nothing slips through the bid.</p>
+        <h2 style={{fontSize:"1.5rem",fontWeight:800,color:"#0F172A",margin:"0 0 0.5rem",letterSpacing:"-0.02em"}}>Read the scope, know what's yours</h2>
+        <p style={{fontSize:"0.85rem",color:"#64748B",lineHeight:1.6,margin:"0 0 1.5rem"}}>Upload the project scope document. The system simplifies it into plain English, flags every trade boundary — is that flashing <i>yours</i>, the roofer's, or the window installer's? — and preps the questions to bring to the scope meeting, so you never bid someone else's work or get stuck eating a cost you didn't price.</p>
         <div
           onClick={()=>fileRef.current?.click()}
           onDrop={e=>{e.preventDefault();setDragOver(false);handle(e.dataTransfer.files[0]);}}
@@ -541,10 +541,10 @@ function ScopeView() {
         </div>
         <div style={{marginTop:"1.5rem",display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.75rem"}}>
           {[
-            ["🧾","Scope line items","Every work item extracted into a clean checklist"],
-            ["🔗","Cross-check vs takeoff","Match scope to your measured materials — catch gaps"],
-            ["❓","RFI flags","What's missing or unclear, with draft questions for the GC"],
-            ["📝","Proposal scope language","Inclusions & exclusions, ready to drop into the bid"],
+            ["🧾","Plain-English summary","Everything the scope covers, simplified — no wading through pages of legalese"],
+            ["🧱","Trade-boundary check","Every flashing, coping & sealant joint flagged: yours, the roofer's, or the window installer's"],
+            ["❓","Questions for the meeting","Auto-prepped RFIs on anything doubtful, so you walk into the scope meeting ready"],
+            ["📐","Building facts + in/exclusions","Height & key dimensions surfaced, plus proposal inclusions/exclusions"],
           ].map(([ic,t,d])=>(
             <div key={t} style={{padding:"0.85rem 1rem",background:"#fff",borderRadius:10,border:"1px solid #EEF2F7"}}>
               <div style={{fontSize:"1.1rem",marginBottom:"0.3rem"}}>{ic}</div>
