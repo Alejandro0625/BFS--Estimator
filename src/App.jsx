@@ -487,6 +487,29 @@ function InfoChip({ label, value, sub, warn }) {
   </div>;
 }
 
+/* Per-elevation trust score from signals we already capture → triage "ready" vs "review" */
+const elevConfidence = (elev) => {
+  const total = (elev.zones||[]).reduce((s,z)=>s+(z.netArea||0),0);
+  let score = 70; const reasons = [];
+  if (elev.verifiedScale || elev.scaleSource==="claude_vision") score += 15;
+  else if (elev.scaleSource==="easyocr") score += 5;
+  else if (elev.scaleSource==="default" || (!elev.verifiedScale && !elev.scale)) { score -= 30; reasons.push("scale not confirmed — calibrate to be sure"); }
+  if (elev.expectedFacadeSF) {
+    const ratio = total / elev.expectedFacadeSF;
+    if (ratio > 1.4) { score -= 35; reasons.push("measured area exceeds the building face — likely scale error"); }
+    else if (ratio >= 0.12 && ratio <= 1.05) score += 10;
+  } else { score -= 5; reasons.push("no printed dimensions to cross-check against"); }
+  if (elev.scheduleOpeningSF > 0) score += 5; else reasons.push("openings estimated (no schedule found)");
+  score = Math.max(5, Math.min(99, score));
+  const status = score >= 85 ? "ready" : score >= 65 ? "review" : "attention";
+  return { score, status, reasons };
+};
+const STATUS_STYLE = {
+  ready:     { bg:"#DCFCE7", fg:"#15803D", label:"✓ Ready" },
+  review:    { bg:"#FEF3C7", fg:"#B45309", label:"Review" },
+  attention: { bg:"#FEE2E2", fg:"#B91C1C", label:"⚠ Check" },
+};
+
 /* ── Main App ── */
 export default function BFSEstimator() {
   const [file, setFile]       = useState(null);
@@ -627,6 +650,11 @@ export default function BFSEstimator() {
   const scaleWarnN = reviewElevs.filter(e=>e.expectedFacadeSF && (e.zones||[]).reduce((s,z)=>s+(z.netArea||0),0) > e.expectedFacadeSF*1.4).length;
   const hasSchedule = !!(results?.scheduleData?.total_opening_sf>0);
   const reviewOk = reviewElevs.length>0 && defaultScaleN===0 && scaleWarnN===0;
+  const triage = reviewElevs.map(e=>({ ...elevConfidence(e) }));
+  const readyN = triage.filter(t=>t.status==="ready").length;
+  const reviewN = triage.filter(t=>t.status==="review").length;
+  const attnN = triage.filter(t=>t.status==="attention").length;
+  const jobConfidence = triage.length ? Math.round(triage.reduce((s,t)=>s+t.score,0)/triage.length) : 0;
   const phaseStep={idle:0,running:1,filtering:1,legend:2,analyzing:3,done:4,error:0}[phase]||0;
   const isRunning=!["idle","done","error"].includes(phase);
   const logColor={ok:"#22C55E",warn:"#F59E0B",error:"#EF4444",success:"#22C55E",dim:"#94A3B8",info:"#64748B"};
@@ -900,10 +928,28 @@ export default function BFSEstimator() {
             )}
             {viewMode==="table"&&(
               <div style={{flex:1,overflowY:"auto",padding:"1.5rem"}}>
+                {/* Triage summary — tells the estimator where to look */}
+                {triage.length>0&&(
+                  <div style={{display:"flex",alignItems:"center",gap:"0.75rem",flexWrap:"wrap",padding:"0.75rem 1rem",marginBottom:"1.25rem",background:"#fff",borderRadius:10,border:"1px solid #F1F5F9",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+                    <div style={{display:"flex",flexDirection:"column"}}>
+                      <span style={{fontSize:"0.55rem",letterSpacing:"0.08em",color:"#94A3B8",textTransform:"uppercase",fontWeight:700}}>Job confidence</span>
+                      <span style={{fontSize:"1.35rem",fontWeight:800,color:jobConfidence>=85?"#15803D":jobConfidence>=65?"#B45309":"#B91C1C"}}>{jobConfidence}%</span>
+                    </div>
+                    <div style={{width:1,height:34,background:"#E2E8F0"}}/>
+                    <div style={{display:"flex",gap:"0.5rem",flexWrap:"wrap",flex:1}}>
+                      {readyN>0&&<span style={{fontSize:"0.7rem",fontWeight:700,padding:"0.3rem 0.7rem",borderRadius:20,background:"#DCFCE7",color:"#15803D"}}>✓ {readyN} ready to confirm</span>}
+                      {reviewN>0&&<span style={{fontSize:"0.7rem",fontWeight:700,padding:"0.3rem 0.7rem",borderRadius:20,background:"#FEF3C7",color:"#B45309"}}>{reviewN} to review</span>}
+                      {attnN>0&&<span style={{fontSize:"0.7rem",fontWeight:700,padding:"0.3rem 0.7rem",borderRadius:20,background:"#FEE2E2",color:"#B91C1C"}}>⚠ {attnN} need attention</span>}
+                    </div>
+                    <span style={{fontSize:"0.6rem",color:"#94A3B8"}}>{attnN+reviewN===0?"All clear — spot-check & send":"Start with the flagged ones below"}</span>
+                  </div>
+                )}
                 <div style={{fontSize:"0.65rem",letterSpacing:"0.1em",color:BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"1rem"}}>Breakdown by Elevation</div>
                 {results.takeoffData.map((elev,i)=>{
                   const total=(elev.zones||[]).reduce((s,z)=>s+(z.netArea||0),0);
                   if(total===0)return null;
+                  const conf=elevConfidence(elev);
+                  const cs=STATUS_STYLE[conf.status];
                   const dispScale=elev.verifiedScale||elev.scale;
                   const scaleSub=elev.scaleSource==="claude_vision"?"read from drawing":elev.scaleSource==="easyocr"?"OCR · title block":elev.scaleSource==="default"?"default — verify!":null;
                   const dims=fmtDims(elev.buildingDimensions);
@@ -911,9 +957,13 @@ export default function BFSEstimator() {
                   const hasIntel=dispScale||dims||elev.expectedFacadeSF||elev.scheduleOpeningSF>0||overshoot;
                   return <div key={i} style={{background:"#fff",borderRadius:10,boxShadow:"0 1px 4px rgba(0,0,0,0.07)",border:"1px solid #F1F5F9",marginBottom:"1rem",overflow:"hidden"}}>
                     <div style={{padding:"0.65rem 1rem",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"1px solid #F1F5F9",background:"#FAFBFC"}}>
-                      <span style={{fontSize:"0.85rem",fontWeight:700,color:"#0F172A"}}>{elev.title}</span>
+                      <div style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
+                        <span style={{fontSize:"0.85rem",fontWeight:700,color:"#0F172A"}}>{elev.title}</span>
+                        <span title={conf.reasons.join(" · ")} style={{fontSize:"0.56rem",fontWeight:700,padding:"0.12rem 0.45rem",borderRadius:20,background:cs.bg,color:cs.fg,whiteSpace:"nowrap"}}>{cs.label} {conf.score}%</span>
+                      </div>
                       <span style={{fontSize:"0.65rem",color:"#94A3B8"}}>{elev.sheetRef} · {Math.round(total).toLocaleString()} SF</span>
                     </div>
+                    {conf.status!=="ready"&&conf.reasons.length>0&&<div style={{padding:"0.4rem 1rem",fontSize:"0.62rem",color:cs.fg,background:cs.bg+"55",borderBottom:"1px solid #F1F5F9"}}>Check: {conf.reasons.join(" · ")}</div>}
                     {hasIntel&&<div style={{display:"flex",flexWrap:"wrap",gap:"0.5rem",padding:"0.6rem 1rem",background:"#F8FAFC",borderBottom:"1px solid #F1F5F9"}}>
                       {dispScale&&<InfoChip label="Scale" value={dispScale} sub={scaleSub} warn={elev.scaleSource==="default"}/>}
                       {dims&&<InfoChip label="Building" value={dims}/>}
