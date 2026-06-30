@@ -510,12 +510,67 @@ const STATUS_STYLE = {
   attention: { bg:"#FEE2E2", fg:"#B91C1C", label:"⚠ Check" },
 };
 
+function ScopeSection({ title, tone, children }) {
+  return <div style={{background:"#fff",borderRadius:10,border:"1px solid "+(tone==="amber"?"#FDE68A":"#EEF2F7"),padding:"0.9rem 1.1rem"}}>
+    <div style={{fontSize:"0.6rem",letterSpacing:"0.1em",color:tone==="amber"?"#B45309":BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"0.6rem"}}>{title}</div>
+    {children}
+  </div>;
+}
+const OWNER = { BFS:{bg:"#DBEAFE",fg:"#1D4ED8",t:"YOU"}, others:{bg:"#F1F5F9",fg:"#64748B",t:"OTHERS"}, unclear:{bg:"#FEF3C7",fg:"#B45309",t:"ASK"} };
+
 /* ── Scope tab: read the project scope document, cross-check the bid ── */
 function ScopeView() {
   const [scopeFile, setScopeFile] = useState(null);
   const [dragOver, setDragOver] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState("");
   const fileRef = useRef();
-  const handle = f => { if(f) setScopeFile(f); };
+  const extractText = async (f) => {
+    const name = (f.name||"").toLowerCase();
+    if (name.endsWith(".xlsx")||name.endsWith(".xls")||name.endsWith(".csv")) {
+      const wb = XLSX.read(await f.arrayBuffer(), {type:"array"});
+      return wb.SheetNames.map(n=>`# Sheet: ${n}\n`+XLSX.utils.sheet_to_csv(wb.Sheets[n])).join("\n\n");
+    }
+    if (name.endsWith(".txt")) return await f.text();
+    return null;
+  };
+  const analyze = async (text) => {
+    const prompt = `You are a senior commercial FACADE/SIDING estimator reviewing a project scope sheet (the GC's scope-of-work for the siding / metal-panel bid package). Read it and extract what the estimator needs for the bid and the scope meeting.
+
+Return ONLY JSON (no markdown):
+{
+ "project":"name if present",
+ "summary":"4-6 sentence plain-English summary of what THIS trade (siding/facade) must furnish & install",
+ "boundaries":[{"item":"...","owner":"BFS|others|unclear","note":"who owns it / why"}],
+ "questions":["clarifications / RFIs to raise - spec-vs-detail conflicts, pending prices, ambiguous ownership, missing info"],
+ "quantities":[{"code":"CMP-1","qty":"3090","unit":"sf"}],
+ "inclusions":["key included items"],
+ "exclusions":["items excluded, or marked 'by others' or 'NO'"],
+ "submittals":["required submittals/milestones with timeframes if given"]
+}
+Focus on TRADE BOUNDARIES (who owns flashing / air & weather barrier / thru-wall flashing / counterflashing / sealant / soffit / roof edge) and QUESTIONS - that is what the estimator and GC argue over. Mark genuinely ambiguous ownership as "unclear".
+
+SCOPE DOCUMENT:
+${text.slice(0,30000)}`;
+    const res = await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-opus-4-8",max_tokens:3000,messages:[{role:"user",content:[{type:"text",text:prompt}]}]})});
+    if(!res.ok) throw new Error("analysis service error ("+res.status+")");
+    const data = await res.json();
+    let t = data?.content?.find(b=>b.type==="text")?.text || "";
+    const m = t.match(/\{[\s\S]+\}/); if(m) t = m[0];
+    return JSON.parse(t);
+  };
+  const handle = async (f) => {
+    if(!f) return;
+    setScopeFile(f); setResult(null); setError("");
+    try {
+      const text = await extractText(f);
+      if(text===null){ setError("PDF / Word reading is coming next — for now upload the Excel (.xlsx) or a text version of the scope."); return; }
+      setBusy(true);
+      setResult(await analyze(text));
+    } catch(e){ setError("Couldn't read that scope sheet: "+e.message); }
+    finally{ setBusy(false); }
+  };
   return (
     <div style={{flex:1,overflowY:"auto",padding:"2.5rem 2rem"}}>
       <div style={{maxWidth:780,margin:"0 auto"}}>
@@ -539,23 +594,50 @@ function ScopeView() {
             <div style={{fontSize:"0.72rem",color:"#16A34A",marginTop:"0.2rem"}}>Loaded · {(scopeFile.size/1024).toFixed(0)} KB</div>
           </>)}
         </div>
-        <div style={{marginTop:"1.5rem",display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.75rem"}}>
-          {[
-            ["🧾","Plain-English summary","Everything the scope covers, simplified — no wading through pages of legalese"],
-            ["🧱","Trade-boundary check","Every flashing, coping & sealant joint flagged: yours, the roofer's, or the window installer's"],
-            ["❓","Questions for the meeting","Auto-prepped RFIs on anything doubtful, so you walk into the scope meeting ready"],
-            ["📐","Building facts + in/exclusions","Height & key dimensions surfaced, plus proposal inclusions/exclusions"],
-          ].map(([ic,t,d])=>(
-            <div key={t} style={{padding:"0.85rem 1rem",background:"#fff",borderRadius:10,border:"1px solid #EEF2F7"}}>
-              <div style={{fontSize:"1.1rem",marginBottom:"0.3rem"}}>{ic}</div>
-              <div style={{fontSize:"0.78rem",fontWeight:700,color:"#0F172A"}}>{t}</div>
-              <div style={{fontSize:"0.68rem",color:"#94A3B8",marginTop:"0.15rem",lineHeight:1.4}}>{d}</div>
+        {busy&&<div style={{marginTop:"1.5rem",textAlign:"center",color:"#64748B",fontSize:"0.85rem"}}>📖 Reading the scope…</div>}
+        {error&&<div style={{marginTop:"1.25rem",padding:"0.85rem 1rem",background:"#FEF2F2",borderRadius:10,border:"1px solid #FECACA",fontSize:"0.78rem",color:"#B91C1C"}}>{error}</div>}
+
+        {!result&&!busy&&!error&&(
+          <div style={{marginTop:"1.5rem",display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.75rem"}}>
+            {[
+              ["🧾","Plain-English summary","Everything the scope covers, simplified — no wading through pages of legalese"],
+              ["🧱","Trade-boundary check","Every flashing, coping & sealant joint flagged: yours, the roofer's, or the window installer's"],
+              ["❓","Questions for the meeting","Auto-prepped RFIs on anything doubtful, so you walk into the scope meeting ready"],
+              ["📐","Quantities + in/exclusions","Required material quantities pulled out, plus proposal inclusions/exclusions"],
+            ].map(([ic,t,d])=>(
+              <div key={t} style={{padding:"0.85rem 1rem",background:"#fff",borderRadius:10,border:"1px solid #EEF2F7"}}>
+                <div style={{fontSize:"1.1rem",marginBottom:"0.3rem"}}>{ic}</div>
+                <div style={{fontSize:"0.78rem",fontWeight:700,color:"#0F172A"}}>{t}</div>
+                <div style={{fontSize:"0.68rem",color:"#94A3B8",marginTop:"0.15rem",lineHeight:1.4}}>{d}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {result&&(
+          <div style={{marginTop:"1.5rem",display:"flex",flexDirection:"column",gap:"1rem"}}>
+            {result.project&&<div style={{fontSize:"0.9rem",fontWeight:800,color:"#0F172A"}}>{result.project}</div>}
+            {result.summary&&<ScopeSection title="Summary"><p style={{fontSize:"0.82rem",color:"#374151",lineHeight:1.6,margin:0}}>{result.summary}</p></ScopeSection>}
+            {result.boundaries?.length>0&&<ScopeSection title="Trade boundaries — who owns what">
+              {result.boundaries.map((b,i)=>{const o=OWNER[b.owner]||OWNER.unclear;return(
+                <div key={i} style={{display:"flex",gap:"0.6rem",alignItems:"flex-start",padding:"0.45rem 0",borderBottom:i<result.boundaries.length-1?"1px solid #F4F6F9":"none"}}>
+                  <span style={{flexShrink:0,fontSize:"0.55rem",fontWeight:800,padding:"0.15rem 0.45rem",borderRadius:20,background:o.bg,color:o.fg,marginTop:1}}>{o.t}</span>
+                  <div><div style={{fontSize:"0.78rem",color:"#0F172A",fontWeight:600}}>{b.item}</div>{b.note&&<div style={{fontSize:"0.68rem",color:"#94A3B8",marginTop:1}}>{b.note}</div>}</div>
+                </div>);})}
+            </ScopeSection>}
+            {result.questions?.length>0&&<ScopeSection title="❓ Questions for the scope meeting" tone="amber">
+              <ul style={{margin:0,paddingLeft:"1.1rem"}}>{result.questions.map((q,i)=><li key={i} style={{fontSize:"0.76rem",color:"#92400E",marginBottom:"0.35rem",lineHeight:1.45}}>{q}</li>)}</ul>
+            </ScopeSection>}
+            {result.quantities?.length>0&&<ScopeSection title="Required quantities">
+              <div style={{display:"flex",flexWrap:"wrap",gap:"0.4rem"}}>{result.quantities.map((q,i)=><span key={i} style={{fontSize:"0.72rem",padding:"0.25rem 0.6rem",background:BLUE_PALE,borderRadius:6,color:BLUE_DARK,fontWeight:700}}>{q.code}: {q.qty} {q.unit}</span>)}</div>
+              <div style={{fontSize:"0.6rem",color:"#94A3B8",marginTop:"0.5rem"}}>These match the finish codes the Takeoff tab measures — the goal is to auto-fill these from your takeoff.</div>
+            </ScopeSection>}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"1rem"}}>
+              {result.inclusions?.length>0&&<ScopeSection title="Inclusions"><ul style={{margin:0,paddingLeft:"1.1rem"}}>{result.inclusions.map((x,i)=><li key={i} style={{fontSize:"0.72rem",color:"#374151",marginBottom:"0.25rem"}}>{x}</li>)}</ul></ScopeSection>}
+              {result.exclusions?.length>0&&<ScopeSection title="Exclusions"><ul style={{margin:0,paddingLeft:"1.1rem"}}>{result.exclusions.map((x,i)=><li key={i} style={{fontSize:"0.72rem",color:"#374151",marginBottom:"0.25rem"}}>{x}</li>)}</ul></ScopeSection>}
             </div>
-          ))}
-        </div>
-        {scopeFile&&(
-          <div style={{marginTop:"1.25rem",padding:"0.85rem 1rem",background:"#FFFBEB",borderRadius:10,border:"1px solid #FDE68A",fontSize:"0.75rem",color:"#92400E",lineHeight:1.5}}>
-            Scope document loaded. The extraction engine is being tuned to your scope format — once it reads your sample correctly, this tab will list every scope line and cross-check it against the takeoff automatically.
+            {result.submittals?.length>0&&<ScopeSection title="Submittals & milestones"><ul style={{margin:0,paddingLeft:"1.1rem"}}>{result.submittals.map((x,i)=><li key={i} style={{fontSize:"0.72rem",color:"#374151",marginBottom:"0.25rem"}}>{x}</li>)}</ul></ScopeSection>}
+            <button onClick={()=>{setScopeFile(null);setResult(null);setError("");}} style={{alignSelf:"flex-start",padding:"0.5rem 1rem",background:"#fff",color:"#64748B",border:"1px solid #E2E8F0",borderRadius:7,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↺ New scope</button>
           </div>
         )}
       </div>
