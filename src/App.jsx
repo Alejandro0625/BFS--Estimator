@@ -553,9 +553,10 @@ Focus on TRADE BOUNDARIES (who owns flashing / air & weather barrier / thru-wall
 
 SCOPE DOCUMENT:
 ${text.slice(0,30000)}`;
-    const res = await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-opus-4-8",max_tokens:3000,messages:[{role:"user",content:[{type:"text",text:prompt}]}]})});
+    const res = await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-opus-4-8",max_tokens:8000,messages:[{role:"user",content:[{type:"text",text:prompt}]}]})});
     if(!res.ok) throw new Error("analysis service error ("+res.status+")");
     const data = await res.json();
+    if(data?.error) throw new Error(data.error.message||"analysis error");
     let t = data?.content?.find(b=>b.type==="text")?.text || "";
     const m = t.match(/\{[\s\S]+\}/); if(m) t = m[0];
     return JSON.parse(t);
