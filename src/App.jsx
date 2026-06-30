@@ -722,6 +722,122 @@ function ModelView() {
   );
 }
 
+/* ── Queue tab: batch-process the day's drawings ── */
+function QueueView({ onOpen }) {
+  const [items, setItems] = useState(() => { try { return JSON.parse(localStorage.getItem("bfs_queue_v1")) || []; } catch { return []; } });
+  const filesRef = useRef({});      // id -> File (not persisted across reload)
+  const pollingRef = useRef({});    // jobId -> interval
+  const busyRef = useRef(false);
+  const [drag, setDrag] = useState(false);
+  const inputRef = useRef();
+
+  useEffect(() => { try { localStorage.setItem("bfs_queue_v1", JSON.stringify(items)); } catch {} }, [items]);
+  const patch = (id, p) => setItems(prev => prev.map(it => it.id === id ? { ...it, ...p } : it));
+  const sfOf = (r) => Math.round((r?.takeoffData || []).reduce((s, e) => s + (e.zones || []).reduce((a, z) => a + (z.netArea || 0), 0), 0));
+
+  const pollJob = useCallback((id, jobId) => {
+    if (pollingRef.current[jobId]) return;
+    const iv = setInterval(async () => {
+      try {
+        const s = await (await fetch(BACKEND + "/status/" + jobId)).json();
+        if (s.progress) patch(id, { progress: s.progress.pct || 0, stage: s.progress.label || s.phase || "" });
+        if (s.status === "done") {
+          clearInterval(iv); delete pollingRef.current[jobId]; busyRef.current = false;
+          patch(id, { status: "done", progress: 100, stage: "Complete",
+            results: { legend: s.legend || [], takeoffData: s.takeoffData || [], scheduleData: s.scheduleData || null, projName: (s.projName) || "", jobId } });
+        } else if (s.status === "error") {
+          clearInterval(iv); delete pollingRef.current[jobId]; busyRef.current = false;
+          patch(id, { status: "error", error: s.error || "Analysis failed" });
+        }
+      } catch {}
+    }, 5000);
+    pollingRef.current[jobId] = iv;
+  }, []);
+
+  // resume any in-flight jobs across a reload (jobId survives even if the File doesn't)
+  useEffect(() => {
+    items.forEach(it => { if (it.jobId && it.status === "running") pollJob(it.id, it.jobId); });
+    return () => { Object.values(pollingRef.current).forEach(clearInterval); pollingRef.current = {}; };
+  }, []); // eslint-disable-line
+
+  // sequential processor: start the next queued file whenever nothing is running
+  useEffect(() => {
+    if (busyRef.current) return;
+    if (items.some(it => it.status === "running")) { busyRef.current = true; return; }
+    const next = items.find(it => it.status === "queued" && filesRef.current[it.id]);
+    if (!next) return;
+    busyRef.current = true;
+    (async () => {
+      try {
+        patch(next.id, { status: "running", progress: 4, stage: "Uploading" });
+        const fd = new FormData(); fd.append("pdf", filesRef.current[next.id]);
+        const r = await fetch(BACKEND + "/analyze", { method: "POST", body: fd });
+        const { jobId } = await r.json();
+        patch(next.id, { jobId }); pollJob(next.id, jobId);
+      } catch (e) { busyRef.current = false; patch(next.id, { status: "error", error: e.message }); }
+    })();
+  }, [items, pollJob]);
+
+  const addFiles = (list) => {
+    const add = [...list].filter(f => f.type === "application/pdf").map(f => {
+      const id = "q" + Date.now() + Math.random().toString(36).slice(2, 6); filesRef.current[id] = f;
+      return { id, name: f.name, status: "queued", progress: 0, addedAt: Date.now() };
+    });
+    if (add.length) setItems(prev => [...prev, ...add]);
+  };
+  const removeItem = (id) => {
+    const it = items.find(x => x.id === id);
+    if (it?.jobId && pollingRef.current[it.jobId]) { clearInterval(pollingRef.current[it.jobId]); delete pollingRef.current[it.jobId]; }
+    if (it?.status === "running") busyRef.current = false;
+    setItems(prev => prev.filter(x => x.id !== id));
+  };
+  const clearDone = () => setItems(prev => prev.filter(it => it.status !== "done"));
+
+  const BADGE = { queued: ["#64748B", "Queued"], running: ["#B45309", "Working"], done: ["#15803D", "Done"], error: ["#B91C1C", "Error"] };
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: "2rem" }}>
+      <div style={{ maxWidth: 820, margin: "0 auto" }}>
+        <h2 style={{ fontSize: "1.4rem", fontWeight: 800, color: "#0F172A", margin: "0 0 0.3rem" }}>Daily Queue</h2>
+        <p style={{ fontSize: "0.82rem", color: "#64748B", margin: "0 0 1.25rem" }}>Drop the whole day's drawings here in the morning. They process one after another — open each result as it finishes.</p>
+        <div onDragOver={e => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
+          onDrop={e => { e.preventDefault(); setDrag(false); addFiles(e.dataTransfer.files); }}
+          onClick={() => inputRef.current?.click()}
+          style={{ border: "2px dashed " + (drag ? BLUE : "#CBD5E1"), background: drag ? "#EFF6FF" : "#fff", borderRadius: 14, padding: "2rem", textAlign: "center", cursor: "pointer", marginBottom: "1.25rem" }}>
+          <input ref={inputRef} type="file" accept="application/pdf" multiple style={{ display: "none" }} onChange={e => addFiles(e.target.files)} />
+          <div style={{ fontSize: "1.6rem" }}>📥</div>
+          <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "#334155", marginTop: "0.4rem" }}>Drop PDFs here, or click to choose</div>
+          <div style={{ fontSize: "0.7rem", color: "#94A3B8", marginTop: "0.2rem" }}>Add as many as you want — they line up and process automatically</div>
+        </div>
+        {items.length > 0 && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" }}>
+            <div style={{ fontSize: "0.72rem", color: "#64748B", fontWeight: 600 }}>{items.filter(i => i.status === "done").length} of {items.length} done</div>
+            {items.some(i => i.status === "done") && <button onClick={clearDone} style={{ fontSize: "0.68rem", color: "#64748B", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>Clear finished</button>}
+          </div>
+        )}
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+          {items.map(it => {
+            const [bc, bl] = BADGE[it.status] || BADGE.queued; const sf = it.results ? sfOf(it.results) : 0;
+            return (
+              <div key={it.id} style={{ background: "#fff", border: "1px solid #EEF2F7", borderRadius: 10, padding: "0.8rem 1rem", display: "flex", alignItems: "center", gap: "0.85rem" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "#1E293B", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name}</div>
+                  <div style={{ fontSize: "0.66rem", color: "#94A3B8", marginTop: 2 }}>
+                    {it.status === "done" ? (sf > 0 ? sf.toLocaleString() + " SF measured" : "Complete") : it.status === "error" ? (it.error || "Failed") : (it.stage || "Waiting") + (it.status === "running" ? " · " + (it.progress || 0) + "%" : "")}
+                  </div>
+                  {it.status === "running" && <div style={{ height: 4, background: "#F1F5F9", borderRadius: 3, marginTop: 6, overflow: "hidden" }}><div style={{ width: (it.progress || 0) + "%", height: "100%", background: BLUE, transition: "width 0.4s" }} /></div>}
+                </div>
+                <span style={{ fontSize: "0.58rem", fontWeight: 700, color: "#fff", background: bc, padding: "0.2rem 0.5rem", borderRadius: 20, whiteSpace: "nowrap" }}>{bl}</span>
+                {it.status === "done" && <button onClick={() => onOpen(it.results)} style={{ fontSize: "0.7rem", fontWeight: 700, color: "#fff", background: BLUE, border: "none", borderRadius: 7, padding: "0.35rem 0.8rem", cursor: "pointer" }}>Open</button>}
+                <button onClick={() => removeItem(it.id)} title="Remove" style={{ fontSize: "0.85rem", color: "#CBD5E1", background: "none", border: "none", cursor: "pointer" }}>✕</button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main App ── */
 export default function BFSEstimator() {
   const [file, setFile]       = useState(null);
@@ -759,6 +875,14 @@ export default function BFSEstimator() {
     if(f?.type==="application/pdf"){
       setFile(f); setPhase("idle"); setResults(null); setLog([]); setErrMsg(""); seenLogs.current=0;
     }
+  };
+
+  // Open a finished Queue result in the Takeoff view
+  const openResult = (r) => {
+    if(!r) return;
+    setResults(r); setAssignments({}); setErrMsg("");
+    setPhase("done"); setProgress({ label:"Complete", pct:100 });
+    setAppTab("takeoff");
   };
 
   const startPolling = useCallback((id)=>{
@@ -899,7 +1023,7 @@ export default function BFSEstimator() {
           )}
           {/* Top-level nav tabs */}
           <div style={{display:"flex",gap:"0.2rem",background:"rgba(255,255,255,0.06)",borderRadius:9,padding:"0.2rem"}}>
-            {[["takeoff","Takeoff"],["scope","Scope"],["model","Model"]].map(([t,label])=>(
+            {[["takeoff","Takeoff"],["queue","Queue"],["scope","Scope"],["model","Model"]].map(([t,label])=>(
               <button key={t} onClick={()=>setAppTab(t)} style={{padding:"0.4rem 1rem",borderRadius:7,border:"none",fontSize:"0.74rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer",background:appTab===t?BLUE:"transparent",color:appTab===t?"#fff":"rgba(255,255,255,0.55)",transition:"all 0.15s"}}>{label}</button>
             ))}
           </div>
@@ -908,6 +1032,7 @@ export default function BFSEstimator() {
 
       {appTab==="scope"&&<ScopeView/>}
       {appTab==="model"&&<ModelView/>}
+      {appTab==="queue"&&<QueueView onOpen={openResult}/>}
 
       {appTab==="takeoff"&&(<>
 
