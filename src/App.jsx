@@ -536,24 +536,29 @@ function ScopeView() {
     return null;
   };
   const analyze = async (text) => {
-    const prompt = `You are a senior commercial FACADE/SIDING estimator reviewing a project scope sheet (the GC's scope-of-work for the siding / metal-panel bid package). Read it and extract what the estimator needs for the bid and the scope meeting.
+    const prompt = `The GC has sent this SCOPE OF WORK sheet for the siding / metal-panel bid package. You are the BFS estimator. Go DOWN the list and for EVERY scope line decide our response:
+- "Y" = we include it / we agree (it's our scope)
+- "N" = NOT our scope or we exclude it (e.g. air & weather barrier "by others", permits marked NO)
+- "?" = ambiguous — we must ASK the GC before we can answer
+Then compile every question we need to send the GC.
 
 Return ONLY JSON (no markdown):
 {
  "project":"name if present",
- "summary":"4-6 sentence plain-English summary of what THIS trade (siding/facade) must furnish & install",
- "boundaries":[{"item":"...","owner":"BFS|others|unclear","note":"who owns it / why"}],
- "questions":["clarifications / RFIs to raise - spec-vs-detail conflicts, pending prices, ambiguous ownership, missing info"],
- "quantities":[{"code":"CMP-1","qty":"3090","unit":"sf"}],
- "inclusions":["key included items"],
- "exclusions":["items excluded, or marked 'by others' or 'NO'"],
- "submittals":["required submittals/milestones with timeframes if given"]
+ "base_bid":"$ amount if present",
+ "items":[
+   {"line":"1","section":"General items","text":"concise scope item text under 140 chars","answer":"Y|N|?","reason":"short why — especially trade boundary: ours vs roofer vs window installer"}
+ ],
+ "questions":["the clarifications / RFIs to send the GC before bidding"]
 }
-Focus on TRADE BOUNDARIES (who owns flashing / air & weather barrier / thru-wall flashing / counterflashing / sealant / soffit / roof edge) and QUESTIONS - that is what the estimator and GC argue over. Mark genuinely ambiguous ownership as "unclear".
+Rules:
+- Include every real scope line; skip blank or header-only rows. Keep the line number and the section heading it falls under.
+- Trade-boundary lines (flashing, air & weather barrier, thru-wall flashing, counterflashing, sealant, soffit, roof edge): decide ours (Y) vs by-others (N) and say why; if truly unclear use "?".
+- "questions" = everything marked "?" plus any spec-vs-detail conflicts, pending prices, or missing info.
 
 SCOPE DOCUMENT:
 ${text.slice(0,30000)}`;
-    const res = await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-opus-4-8",max_tokens:8000,messages:[{role:"user",content:[{type:"text",text:prompt}]}]})});
+    const res = await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-opus-4-8",max_tokens:12000,messages:[{role:"user",content:[{type:"text",text:prompt}]}]})});
     if(!res.ok) throw new Error("analysis service error ("+res.status+")");
     const data = await res.json();
     if(data?.error) throw new Error(data.error.message||"analysis error");
@@ -615,32 +620,45 @@ ${text.slice(0,30000)}`;
           </div>
         )}
 
-        {result&&(
-          <div style={{marginTop:"1.5rem",display:"flex",flexDirection:"column",gap:"1rem"}}>
-            {result.project&&<div style={{fontSize:"0.9rem",fontWeight:800,color:"#0F172A"}}>{result.project}</div>}
-            {result.summary&&<ScopeSection title="Summary"><p style={{fontSize:"0.82rem",color:"#374151",lineHeight:1.6,margin:0}}>{result.summary}</p></ScopeSection>}
-            {result.boundaries?.length>0&&<ScopeSection title="Trade boundaries — who owns what">
-              {result.boundaries.map((b,i)=>{const o=OWNER[b.owner]||OWNER.unclear;return(
-                <div key={i} style={{display:"flex",gap:"0.6rem",alignItems:"flex-start",padding:"0.45rem 0",borderBottom:i<result.boundaries.length-1?"1px solid #F4F6F9":"none"}}>
-                  <span style={{flexShrink:0,fontSize:"0.55rem",fontWeight:800,padding:"0.15rem 0.45rem",borderRadius:20,background:o.bg,color:o.fg,marginTop:1}}>{o.t}</span>
-                  <div><div style={{fontSize:"0.78rem",color:"#0F172A",fontWeight:600}}>{b.item}</div>{b.note&&<div style={{fontSize:"0.68rem",color:"#94A3B8",marginTop:1}}>{b.note}</div>}</div>
-                </div>);})}
-            </ScopeSection>}
-            {result.questions?.length>0&&<ScopeSection title="❓ Questions for the scope meeting" tone="amber">
-              <ul style={{margin:0,paddingLeft:"1.1rem"}}>{result.questions.map((q,i)=><li key={i} style={{fontSize:"0.76rem",color:"#92400E",marginBottom:"0.35rem",lineHeight:1.45}}>{q}</li>)}</ul>
-            </ScopeSection>}
-            {result.quantities?.length>0&&<ScopeSection title="Required quantities">
-              <div style={{display:"flex",flexWrap:"wrap",gap:"0.4rem"}}>{result.quantities.map((q,i)=><span key={i} style={{fontSize:"0.72rem",padding:"0.25rem 0.6rem",background:BLUE_PALE,borderRadius:6,color:BLUE_DARK,fontWeight:700}}>{q.code}: {q.qty} {q.unit}</span>)}</div>
-              <div style={{fontSize:"0.6rem",color:"#94A3B8",marginTop:"0.5rem"}}>These match the finish codes the Takeoff tab measures — the goal is to auto-fill these from your takeoff.</div>
-            </ScopeSection>}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"1rem"}}>
-              {result.inclusions?.length>0&&<ScopeSection title="Inclusions"><ul style={{margin:0,paddingLeft:"1.1rem"}}>{result.inclusions.map((x,i)=><li key={i} style={{fontSize:"0.72rem",color:"#374151",marginBottom:"0.25rem"}}>{x}</li>)}</ul></ScopeSection>}
-              {result.exclusions?.length>0&&<ScopeSection title="Exclusions"><ul style={{margin:0,paddingLeft:"1.1rem"}}>{result.exclusions.map((x,i)=><li key={i} style={{fontSize:"0.72rem",color:"#374151",marginBottom:"0.25rem"}}>{x}</li>)}</ul></ScopeSection>}
+        {result&&(()=>{
+          const items = result.items||[];
+          const yN=items.filter(i=>i.answer==="Y").length, nN=items.filter(i=>i.answer==="N").length, qN=items.filter(i=>i.answer==="?").length;
+          const setAnswer=(idx,a)=>setResult(r=>({...r,items:r.items.map((it,i)=>i===idx?{...it,answer:a}:it)}));
+          const aStyle={Y:{bg:"#DCFCE7",fg:"#15803D"},N:{bg:"#FEE2E2",fg:"#B91C1C"},"?":{bg:"#FEF3C7",fg:"#B45309"}};
+          return <div style={{marginTop:"1.5rem",display:"flex",flexDirection:"column",gap:"1rem"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:"0.5rem"}}>
+              <div><div style={{fontSize:"0.95rem",fontWeight:800,color:"#0F172A"}}>{result.project||"Scope of Work"}</div>{result.base_bid&&<div style={{fontSize:"0.7rem",color:"#64748B"}}>Base bid: {result.base_bid}</div>}</div>
+              <div style={{display:"flex",gap:"0.4rem"}}>
+                <span style={{fontSize:"0.7rem",fontWeight:700,padding:"0.25rem 0.6rem",borderRadius:20,background:"#DCFCE7",color:"#15803D"}}>{yN} Yes</span>
+                <span style={{fontSize:"0.7rem",fontWeight:700,padding:"0.25rem 0.6rem",borderRadius:20,background:"#FEE2E2",color:"#B91C1C"}}>{nN} No</span>
+                <span style={{fontSize:"0.7rem",fontWeight:700,padding:"0.25rem 0.6rem",borderRadius:20,background:"#FEF3C7",color:"#B45309"}}>{qN} to ask</span>
+              </div>
             </div>
-            {result.submittals?.length>0&&<ScopeSection title="Submittals & milestones"><ul style={{margin:0,paddingLeft:"1.1rem"}}>{result.submittals.map((x,i)=><li key={i} style={{fontSize:"0.72rem",color:"#374151",marginBottom:"0.25rem"}}>{x}</li>)}</ul></ScopeSection>}
+            {result.questions?.length>0&&<ScopeSection title="❓ Questions to send the GC" tone="amber">
+              <ul style={{margin:0,paddingLeft:"1.1rem"}}>{result.questions.map((q,i)=><li key={i} style={{fontSize:"0.74rem",color:"#92400E",marginBottom:"0.35rem",lineHeight:1.45}}>{q}</li>)}</ul>
+            </ScopeSection>}
+            <div style={{fontSize:"0.6rem",letterSpacing:"0.1em",color:BLUE,textTransform:"uppercase",fontWeight:700}}>Scope checklist — review each Yes / No / Ask</div>
+            <div style={{background:"#fff",borderRadius:10,border:"1px solid #EEF2F7",overflow:"hidden"}}>
+              {items.map((it,idx)=>{
+                const showH = idx===0||items[idx-1].section!==it.section;
+                return <div key={idx}>
+                  {showH&&it.section&&<div style={{padding:"0.5rem 0.85rem",background:"#F8FAFC",fontSize:"0.6rem",letterSpacing:"0.08em",textTransform:"uppercase",fontWeight:700,color:"#64748B",borderTop:idx>0?"1px solid #F1F5F9":"none"}}>{it.section}</div>}
+                  <div style={{display:"flex",gap:"0.6rem",alignItems:"flex-start",padding:"0.5rem 0.85rem",borderTop:"1px solid #F6F8FA"}}>
+                    <span style={{flexShrink:0,fontSize:"0.6rem",color:"#CBD5E1",fontWeight:700,width:18,textAlign:"right"}}>{it.line}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:"0.74rem",color:"#0F172A"}}>{it.text}</div>
+                      {it.reason&&<div style={{fontSize:"0.64rem",color:"#94A3B8",marginTop:1}}>{it.reason}</div>}
+                    </div>
+                    <div style={{display:"flex",gap:2,flexShrink:0}}>
+                      {["Y","N","?"].map(a=>{const on=it.answer===a;const c=aStyle[a];return <button key={a} onClick={()=>setAnswer(idx,a)} style={{padding:"0.2rem 0.5rem",borderRadius:5,border:"1px solid "+(on?c.fg:"#E2E8F0"),background:on?c.bg:"#fff",color:on?c.fg:"#94A3B8",fontSize:"0.62rem",fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{a}</button>;})}
+                    </div>
+                  </div>
+                </div>;
+              })}
+            </div>
             <button onClick={()=>{setScopeFile(null);setResult(null);setError("");}} style={{alignSelf:"flex-start",padding:"0.5rem 1rem",background:"#fff",color:"#64748B",border:"1px solid #E2E8F0",borderRadius:7,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↺ New scope</button>
-          </div>
-        )}
+          </div>;
+        })()}
       </div>
     </div>
   );
