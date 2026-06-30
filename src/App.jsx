@@ -139,7 +139,7 @@ const buildExcel = (projectName, materials, pricing) => {
 };
 
 /* ── Interactive Takeoff ── */
-function InteractiveView({ results, BACKEND, assignments, setAssignments }) {
+function InteractiveView({ results, BACKEND, assignments, setAssignments, groupRename={}, setGroupRename=()=>{} }) {
   const [elevIdx, setElevIdx] = useState(0);
   const [pageImage, setPageImage] = useState(null);
   const [imgLoaded, setImgLoaded] = useState(false);
@@ -214,11 +214,20 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments }) {
   useEffect(()=>{
     if(!activeGroup){ setGroupNameDraft(""); return; }
     const z0=selectedZones[0];
-    const cur=selectedZones.map(z=>getAssignment(z.id)).find(a=>a)?.name || z0?.material || z0?.category || "";
+    const base=z0?.material || z0?.category || "";
+    const cur=groupRename[base] || selectedZones.map(z=>getAssignment(z.id)).find(a=>a)?.name || base || "";
     setGroupNameDraft(cur);
   // eslint-disable-next-line
   },[activeGroup]);
-  const renameGroup = (nm)=>{ const v=(nm||"").trim(); if(v) assignGroup({ id:v, name:v, category:v }); };
+  // Renaming a group applies it to that SAME texture group on EVERY page of the drawing,
+  // remembers it for next time, and silently saves the correction as training data — no button.
+  const renameGroup = (nm)=>{
+    const v=(nm||"").trim(); if(!v) return;
+    const z0=selectedZones[0]; const base=z0?.material || z0?.category || "group";
+    setGroupRename(prev=>({...prev,[base]:v}));
+    if(groupSig){ const m=loadLearned(); m[groupSig]={category:v,materialName:v,id:v,at:Date.now()}; saveLearned(m); }
+    if(results?.jobId) fetch(BACKEND+"/learn",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page:pageNum,source:"rename",group:base,name:v,shapes:selectedZones.map(z=>({points:z.points,name:v,color:z.fill_color,type:"add"}))})}).catch(()=>{});
+  };
   const learnedMat = groupSig ? loadLearned()[groupSig] : null;
   const assignGroup = mat => {
     setAssignments(prev=>{const n={...prev};selectedZones.forEach(z=>{n[assignKey(z.id)]={...mat,area_sf:z.area_sf||0};});return n;});
@@ -328,7 +337,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments }) {
               <div style={{fontSize:"0.6rem",color:"#94A3B8",marginTop:3}}>{selectedZones.length} area{selectedZones.length!==1?"s":""} with this pattern</div>
             </div>
             <div style={{marginBottom:"0.7rem"}}>
-              <div style={{fontSize:"0.6rem",color:"#64748B",marginBottom:"0.3rem"}}>Name this group (shows on the Excel):</div>
+              <div style={{fontSize:"0.6rem",color:"#64748B",marginBottom:"0.3rem"}}>Name this group → applies to <b style={{color:"#94A3B8"}}>every page</b> + the Excel:</div>
               <div style={{display:"flex",gap:"0.35rem"}}>
                 <input value={groupNameDraft} onChange={e=>setGroupNameDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")renameGroup(groupNameDraft);}} placeholder="e.g. Metal Panel" style={{flex:1,minWidth:0,background:NAVY,border:"1px solid #2D5280",borderRadius:6,color:"#fff",fontSize:"0.7rem",padding:"0.4rem 0.5rem",fontFamily:"inherit"}}/>
                 <button onClick={()=>renameGroup(groupNameDraft)} style={{background:BLUE,border:"none",borderRadius:6,color:"#fff",fontSize:"0.66rem",fontWeight:700,padding:"0 0.65rem",cursor:"pointer",fontFamily:"inherit"}}>Set</button>
@@ -930,17 +939,17 @@ function ManualView({ results, BACKEND }) {
   };
   const rename = (id, nm) => setShapes(prev => prev.map(s => s.id === id ? { ...s, name: nm } : s));
   const del = id => { setShapes(prev => prev.filter(s => s.id !== id)); setSelId(null); };
-  const teach = async () => {
-    if (!results?.jobId || !shapes.length) { setTaught("Draw at least one shape first"); return; }
-    setTaught("Saving…");
-    try {
-      const body = { jobId: results.jobId, page: pageNum, source: "draw",
-        shapes: shapes.map(s => ({ points: s.points, name: colorNames[s.color] || s.name, color: s.color, type: s.type })) };
-      const r = await fetch(BACKEND + "/learn", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const d = await r.json();
-      setTaught(d.ok ? `✓ Saved — the AI now has ${d.total} example${d.total === 1 ? "" : "s"} to learn from` : "Save failed");
-    } catch { setTaught("Save failed — check connection"); }
-  };
+  // Silent auto-learning: when she draws/edits, save it as a training example (debounced, no button).
+  useEffect(() => {
+    if (!results?.jobId || !shapes.length) return;
+    const t = setTimeout(() => {
+      fetch(BACKEND + "/learn", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: results.jobId, page: pageNum, source: "draw",
+          shapes: shapes.map(s => ({ points: s.points, name: colorNames[s.color] || s.name, color: s.color, type: s.type })) }) })
+        .then(() => setTaught("saved")).catch(() => {});
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [shapes, colorNames, results?.jobId, pageNum, BACKEND]);
 
   const btn = (active) => ({ flex: 1, padding: "0.45rem", borderRadius: 7, border: "1px solid " + (active ? BLUE : "#2D5280"), background: active ? BLUE : "transparent", color: active ? "#fff" : "#94A3B8", fontSize: "0.66rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" });
 
@@ -1017,9 +1026,7 @@ function ManualView({ results, BACKEND }) {
           <div style={{ fontSize: "0.6rem", color: "#4ADE80", fontWeight: 700 }}>NET TOTAL (all colors)</div>
           <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "#4ADE80" }}>{Math.round(total).toLocaleString()} <span style={{ fontSize: "0.65rem", fontWeight: 400 }}>SF</span></div>
         </div>
-        <button onClick={teach} disabled={!shapes.length} style={{ width: "100%", marginTop: "0.6rem", padding: "0.55rem", background: shapes.length ? "#7C3AED" : "#3B2C5A", border: "none", borderRadius: 8, color: "#fff", fontSize: "0.72rem", fontWeight: 700, cursor: shapes.length ? "pointer" : "default", fontFamily: "inherit" }}>🧠 Save &amp; teach the AI</button>
-        {taught && <div style={{ fontSize: "0.6rem", color: "#A78BFA", marginTop: "0.4rem", textAlign: "center" }}>{taught}</div>}
-        <div style={{ fontSize: "0.56rem", color: "#475569", marginTop: "0.4rem", lineHeight: 1.5 }}>When she has to draw by hand, this saves it as a lesson — the AI learns to do it next time.</div>
+        <div style={{ fontSize: "0.56rem", color: "#64748B", marginTop: "0.6rem", lineHeight: 1.5 }}>{taught === "saved" ? "🧠 Learned from this drawing." : "🧠 The AI learns from this automatically — what you draw here teaches it to do it next time."}</div>
       </div>
     </div>
   );
@@ -1039,6 +1046,9 @@ export default function BFSEstimator() {
   const [appTab, setAppTab] = useState("takeoff");
   const [pricing, setPricing] = useState({ rates:{}, wastePct:15, marginPct:20 });
   const [assignments, setAssignments] = useState({});
+  const [groupRename, setGroupRename] = useState({});   // {backendGroupName: estimator name} — propagates across all pages of a job
+  useEffect(()=>{ setGroupRename({}); }, [results?.jobId]);
+  const dispName = n => groupRename[n] || n;
   const [savedBids, setSavedBids] = useState([]);
   const fileRef  = useRef();
   const logRef   = useRef();
@@ -1107,7 +1117,7 @@ export default function BFSEstimator() {
   const exportExcel=()=>{
     if(!results)return;
     const mt={};
-    results.takeoffData.forEach(e=>(e.zones||[]).forEach(z=>{const k=z.materialName||z.category||"Panel";if(!mt[k])mt[k]={name:k,sf:0};mt[k].sf+=z.netArea||0;}));
+    results.takeoffData.forEach(e=>(e.zones||[]).forEach(z=>{const k=dispName(z.materialName||z.category||"Panel");if(!mt[k])mt[k]={name:k,sf:0};mt[k].sf+=z.netArea||0;}));
     const wb=buildExcel(results.projName||"Project",Object.values(mt));
     XLSX.writeFile(wb,"BFS_Takeoff_"+(results.projName||"Project").replace(/\s+/g,"_")+".xlsx");
   };
@@ -1144,14 +1154,14 @@ export default function BFSEstimator() {
 
   const summary=results?()=>{
     const t={};
-    results.takeoffData.forEach(e=>(e.zones||[]).forEach(z=>{const k=z.category||"Other";if(!t[k])t[k]={net:0,adj:0,color:MAT_COLORS[k]||"#9CA3AF"};t[k].net+=z.netArea||0;t[k].adj+=(z.netArea||0)*1.15;}));
+    results.takeoffData.forEach(e=>(e.zones||[]).forEach(z=>{const k=dispName(z.category||"Other");if(!t[k])t[k]={net:0,adj:0,color:MAT_COLORS[k]||"#9CA3AF"};t[k].net+=z.netArea||0;t[k].adj+=(z.netArea||0)*1.15;}));
     return t;
   }:null;
   const summaryData = summary ? summary() : null;
   const grandAdj = summaryData ? Object.values(summaryData).reduce((s,v)=>s+v.adj,0) : 0;
   // Reviewed takeoff = what the user assigned in Interactive; drives the bid when present
   const reviewedSummary = Object.values(assignments).reduce((acc,a)=>{
-    const cat=a.category||a.materialName||"Panel"; if(!acc[cat])acc[cat]={net:0}; acc[cat].net+=a.area_sf||0; return acc;
+    const cat=dispName(a.category||a.materialName||"Panel"); if(!acc[cat])acc[cat]={net:0}; acc[cat].net+=a.area_sf||0; return acc;
   },{});
   const hasReviewed = Object.keys(reviewedSummary).length>0;
   const pricingSource = hasReviewed ? reviewedSummary : (summaryData||{});
@@ -1460,7 +1470,7 @@ export default function BFSEstimator() {
           {/* Main */}
           <main style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
             {viewMode==="interactive"&&(
-              <div style={{flex:1,overflow:"hidden"}}><InteractiveView results={results} BACKEND={BACKEND} assignments={assignments} setAssignments={setAssignments}/></div>
+              <div style={{flex:1,overflow:"hidden"}}><InteractiveView results={results} BACKEND={BACKEND} assignments={assignments} setAssignments={setAssignments} groupRename={groupRename} setGroupRename={setGroupRename}/></div>
             )}
             {viewMode==="edit"&&(
               <div style={{flex:1,overflow:"hidden"}}><EditorView results={results} BACKEND={BACKEND}/></div>
