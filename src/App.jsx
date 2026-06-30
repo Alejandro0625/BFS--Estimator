@@ -871,6 +871,8 @@ function ManualView({ results, BACKEND }) {
   const [calibPts, setCalibPts] = useState([]);
   const [realFt, setRealFt] = useState("");
   const [selId, setSelId] = useState(null);
+  const [curColor, setCurColor] = useState("#4A86C8");
+  const [colorNames, setColorNames] = useState({});   // color -> material name
 
   useEffect(() => {
     if (!pageNum || !results?.jobId) { setImg(null); return; }
@@ -901,6 +903,8 @@ function ManualView({ results, BACKEND }) {
   };
   const areaSF = s => calib ? shoelacePx(s.points) * calib.ftPerPx * calib.ftPerPx : 0;
   const total = shapes.reduce((t, s) => t + (s.type === "cut" ? -areaSF(s) : areaSF(s)), 0);
+  const byColor = {};
+  shapes.forEach(s => { if (!byColor[s.color]) byColor[s.color] = { sf: 0, n: 0 }; byColor[s.color].sf += (s.type === "cut" ? -1 : 1) * areaSF(s); byColor[s.color].n++; });
 
   const onDown = e => {
     const st = e.target.getStage(); const pos = st.getPointerPosition(); if (!pos) return;
@@ -912,7 +916,7 @@ function ManualView({ results, BACKEND }) {
     if (draft.length < 3) return;
     setShapes(prev => [...prev, { id: Date.now(), points: draft, type: mode === "cut" ? "cut" : "add",
       name: mode === "cut" ? "Cutout" : "Area " + (prev.filter(s => s.type !== "cut").length + 1),
-      color: mode === "cut" ? "#EF4444" : COLS[prev.length % COLS.length] }]);
+      color: curColor }]);
     setDraft([]);
   };
   const applyCalib = () => {
@@ -970,6 +974,12 @@ function ManualView({ results, BACKEND }) {
         </div>}
         {draft.length > 0 && <button onClick={finish} style={{ width: "100%", padding: "0.5rem", marginBottom: "0.6rem", background: "#15803D", border: "none", borderRadius: 7, color: "#fff", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>✓ Finish shape ({draft.length} pts)</button>}
         <div style={{ fontSize: "0.58rem", color: calib ? "#4ADE80" : "#F87171", marginBottom: "0.6rem" }}>{calib ? "✓ Scale set" : "⚠ Set scale to get SF"}</div>
+        <div style={{ marginBottom: "0.65rem" }}>
+          <div style={{ fontSize: "0.6rem", color: "#64748B", marginBottom: "0.3rem" }}>Color (= material) for new shapes:</div>
+          <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
+            {COLS.map(c => <div key={c} onClick={() => setCurColor(c)} style={{ width: 22, height: 22, borderRadius: 5, background: c, cursor: "pointer", border: curColor === c ? "2px solid #fff" : "2px solid rgba(255,255,255,0.15)" }} />)}
+          </div>
+        </div>
         <div style={{ fontSize: "0.6rem", letterSpacing: "0.1em", color: "#64748B", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.4rem" }}>Shapes ({shapes.length})</div>
         {shapes.map(s => {
           const sel = selId === s.id;
@@ -981,8 +991,18 @@ function ManualView({ results, BACKEND }) {
             {sel && <div onClick={e => { e.stopPropagation(); del(s.id); }} style={{ marginTop: "0.4rem", fontSize: "0.6rem", color: "#F87171", textAlign: "center", border: "1px solid #7F1D1D", borderRadius: 5, padding: "0.25rem", cursor: "pointer" }}>Delete</div>}
           </div>;
         })}
+        {Object.keys(byColor).length > 0 && <>
+          <div style={{ fontSize: "0.6rem", letterSpacing: "0.1em", color: "#64748B", textTransform: "uppercase", fontWeight: 700, margin: "0.85rem 0 0.4rem" }}>Totals by color</div>
+          {Object.entries(byColor).map(([c, d]) => (
+            <div key={c} style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.45rem 0.55rem", marginBottom: "0.3rem", background: NAVY, borderRadius: 6, borderLeft: "3px solid " + c }}>
+              <div style={{ width: 12, height: 12, borderRadius: 3, background: c, flexShrink: 0 }} />
+              <input value={colorNames[c] || ""} onChange={e => setColorNames(p => ({ ...p, [c]: e.target.value }))} placeholder="name this color…" style={{ flex: 1, minWidth: 0, background: "transparent", border: "none", color: "#CBD5E1", fontSize: "0.64rem", fontFamily: "inherit" }} />
+              <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "#E2E8F0" }}>{Math.round(d.sf).toLocaleString()} SF</span>
+            </div>
+          ))}
+        </>}
         <div style={{ marginTop: "0.75rem", padding: "0.6rem 0.75rem", background: NAVY_LT, borderRadius: 8, border: "1px solid " + BLUE + "40" }}>
-          <div style={{ fontSize: "0.6rem", color: "#4ADE80", fontWeight: 700 }}>NET TOTAL</div>
+          <div style={{ fontSize: "0.6rem", color: "#4ADE80", fontWeight: 700 }}>NET TOTAL (all colors)</div>
           <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "#4ADE80" }}>{Math.round(total).toLocaleString()} <span style={{ fontSize: "0.65rem", fontWeight: 400 }}>SF</span></div>
         </div>
       </div>
