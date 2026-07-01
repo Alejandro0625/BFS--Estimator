@@ -1135,7 +1135,10 @@ export default function BFSEstimator() {
     if(!results?.jobId)return;
     setPdfLoading(true);
     try{
-      const res=await fetch(BACKEND+"/evidence-pdf/"+results.jobId);
+      // if she assigned/selected specific materials, mark only those on the PDF; else mark all
+      const picked=[...new Set(Object.values(assignments).flatMap(a=>[a.category,a.materialName].filter(Boolean)))];
+      const q=picked.length?("?materials="+encodeURIComponent(picked.join(","))):"";
+      const res=await fetch(BACKEND+"/evidence-pdf/"+results.jobId+q);
       if(!res.ok)throw new Error("PDF not ready");
       const blob=await res.blob();
       const url=URL.createObjectURL(blob);
