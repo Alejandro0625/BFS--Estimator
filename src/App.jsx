@@ -893,17 +893,34 @@ function ManualView({ results, BACKEND }) {
   const [colorNames, setColorNames] = useState({});   // color -> material name
   const [taught, setTaught] = useState(null);
   const [snapPts, setSnapPts] = useState([]);          // drawing's real CAD corners (Bluebeam-style snap)
+  const edited = useRef(false);                        // true once she actually edits (so flywheel learns only real corrections)
+
+  const rgbToHex = c => (Array.isArray(c) && c.length >= 3)
+    ? "#" + c.slice(0, 3).map(v => Math.max(0, Math.min(255, Math.round(v * 255))).toString(16).padStart(2, "0")).join("")
+    : curColor;
 
   useEffect(() => {
     if (!pageNum || !results?.jobId) { setImg(null); return; }
-    setShapes([]); setDraft([]); setSelId(null); setImg(null); setCalib(null); setCalibPts([]);
+    setShapes([]); setDraft([]); setSelId(null); setImg(null); setCalib(null); setCalibPts([]); setSnapPts([]);
+    edited.current = false;
     const im = new window.Image();
     im.crossOrigin = "anonymous";
     im.src = BACKEND + "/page-image/" + results.jobId + "/" + pageNum;
     im.onload = () => { setImg(im); setPageDims({ width: im.naturalWidth || 612, height: im.naturalHeight || 792 }); };
-    setSnapPts([]);
     fetch(BACKEND + "/snap-points/" + results.jobId + "/" + pageNum)
       .then(r => r.ok ? r.json() : { points: [] }).then(d => setSnapPts(d.points || [])).catch(() => setSnapPts([]));
+    // EDIT-THE-AI: pre-load the AI's detected shapes so she edits the AI's work, not redraw from scratch
+    fetch(BACKEND + "/polygons/" + results.jobId + "/" + pageNum)
+      .then(r => r.ok ? r.json() : { polygons: [] }).then(d => {
+        const W = d.width || 612, H = d.height || 792;
+        const shoe = pts => { let a = 0; for (let i = 0; i < pts.length; i++) { const x1 = pts[i][0] * W, y1 = pts[i][1] * H, x2 = pts[(i + 1) % pts.length][0] * W, y2 = pts[(i + 1) % pts.length][1] * H; a += x1 * y2 - x2 * y1; } return Math.abs(a) / 2; };
+        const ref = (d.polygons || []).find(p => p.area_sf > 0 && p.points && p.points.length >= 3);
+        if (ref) { const sp = shoe(ref.points); if (sp > 0) setCalib({ ftPerPx: Math.sqrt(ref.area_sf / sp) }); }  // auto-calibrate from AI's exact SF
+        setShapes((d.polygons || []).filter(p => p.points && p.points.length >= 3).map((p, i) => ({
+          id: Date.now() + i, points: p.points, type: "add",
+          name: p.material || p.category || ("Area " + (i + 1)), color: rgbToHex(p.fill_color)
+        })));
+      }).catch(() => {});
   }, [elevIdx, pageNum, results?.jobId, BACKEND]);
 
   useEffect(() => {
@@ -946,6 +963,7 @@ function ManualView({ results, BACKEND }) {
   };
   const finish = () => {
     if (draft.length < 3) return;
+    edited.current = true;
     setShapes(prev => [...prev, { id: Date.now(), points: draft, type: mode === "cut" ? "cut" : "add",
       name: mode === "cut" ? "Cutout" : "Area " + (prev.filter(s => s.type !== "cut").length + 1),
       color: curColor }]);
@@ -959,11 +977,11 @@ function ManualView({ results, BACKEND }) {
     if (dpx > 0) setCalib({ ftPerPx: ft / dpx });
     setCalibPts([]); setMode("add");
   };
-  const rename = (id, nm) => setShapes(prev => prev.map(s => s.id === id ? { ...s, name: nm } : s));
-  const del = id => { setShapes(prev => prev.filter(s => s.id !== id)); setSelId(null); };
-  // Silent auto-learning: when she draws/edits, save it as a training example (debounced, no button).
+  const rename = (id, nm) => { edited.current = true; setShapes(prev => prev.map(s => s.id === id ? { ...s, name: nm } : s)); };
+  const del = id => { edited.current = true; setShapes(prev => prev.filter(s => s.id !== id)); setSelId(null); };
+  // Silent auto-learning: only save as a training example once SHE actually edits (not the AI's own pre-loaded shapes).
   useEffect(() => {
-    if (!results?.jobId || !shapes.length) return;
+    if (!results?.jobId || !shapes.length || !edited.current) return;
     const t = setTimeout(() => {
       fetch(BACKEND + "/learn", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobId: results.jobId, page: pageNum, source: "draw",
