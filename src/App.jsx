@@ -1087,6 +1087,35 @@ export default function BFSEstimator() {
   const [pricing, setPricing] = useState({ rates:{}, wastePct:15, marginPct:20 });
   const [assignments, setAssignments] = useState({});
   const [groupRename, setGroupRename] = useState({});   // {backendGroupName: estimator name} — propagates across all pages of a job
+
+  // ── UI polish: load real fonts + global interactions (the app referenced 'Inter' but never loaded it) ──
+  useEffect(() => {
+    if (document.getElementById("bfs-ui-polish")) return;
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap";
+    document.head.appendChild(link);
+    const s = document.createElement("style");
+    s.id = "bfs-ui-polish";
+    s.textContent = `
+      html, body, #root { font-family: 'Inter', system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; letter-spacing: -0.012em; }
+      h1,h2,h3 { letter-spacing: -0.03em; }
+      button, [role=button], a { transition: transform .13s cubic-bezier(.2,.8,.2,1), box-shadow .2s ease, background .2s ease, border-color .2s ease, color .2s ease, opacity .2s ease; }
+      button:not(:disabled):hover, [role=button]:hover { transform: translateY(-1px); }
+      button:not(:disabled):active, [role=button]:active { transform: translateY(0) scale(.98); }
+      input, textarea, select { transition: border-color .2s ease, box-shadow .2s ease, background .2s ease; }
+      input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(74,134,200,.35); }
+      ::selection { background: rgba(74,134,200,.30); color: inherit; }
+      ::-webkit-scrollbar { width: 10px; height: 10px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: rgba(120,150,190,.32); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(120,150,190,.55); background-clip: padding-box; }
+      * { scrollbar-width: thin; scrollbar-color: rgba(120,150,190,.4) transparent; }
+      @keyframes bfsFadeUp { from { opacity:0; transform: translateY(8px) } to { opacity:1; transform:none } }
+      @keyframes bfsShimmer { 100% { background-position: 200% 0 } }
+    `;
+    document.head.appendChild(s);
+  }, []);
   useEffect(()=>{ setGroupRename({}); }, [results?.jobId]);
   const dispName = n => groupRename[n] || n;
   const [savedBids, setSavedBids] = useState([]);
@@ -1252,8 +1281,8 @@ export default function BFSEstimator() {
           <img src="/logo-bfs.png" alt="BFS" style={{height:40,width:"auto"}}/>
           <div style={{width:1,height:32,background:"rgba(255,255,255,0.1)"}}/>
           <div>
-            <div style={{fontSize:"0.55rem",letterSpacing:"0.2em",color:"rgba(255,255,255,0.4)",textTransform:"uppercase",fontWeight:500}}>Boston Facade Systems</div>
-            <div style={{fontSize:"0.95rem",fontWeight:700,color:"#fff",letterSpacing:"-0.01em"}}>AI Panel Estimator</div>
+            <div style={{fontSize:"0.55rem",letterSpacing:"0.24em",color:"rgba(255,255,255,0.42)",textTransform:"uppercase",fontWeight:600}}>Boston Facade Systems</div>
+            <div style={{fontSize:"1.02rem",fontWeight:600,color:"#fff",letterSpacing:"-0.02em",fontFamily:"'Space Grotesk',sans-serif"}}>AI Panel Estimator</div>
           </div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:"1rem"}}>
@@ -1268,7 +1297,7 @@ export default function BFSEstimator() {
           {/* Top-level nav tabs */}
           <div style={{display:"flex",gap:"0.2rem",background:"rgba(255,255,255,0.06)",borderRadius:9,padding:"0.2rem"}}>
             {[["takeoff","Takeoff"],["queue","Queue"],["manual","Draw"],["scope","Scope"],["model","Model"]].map(([t,label])=>(
-              <button key={t} onClick={()=>setAppTab(t)} style={{padding:"0.4rem 1rem",borderRadius:7,border:"none",fontSize:"0.74rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer",background:appTab===t?BLUE:"transparent",color:appTab===t?"#fff":"rgba(255,255,255,0.55)",transition:"all 0.15s"}}>{label}</button>
+              <button key={t} onClick={()=>setAppTab(t)} style={{padding:"0.42rem 1.05rem",borderRadius:7,border:"none",fontSize:"0.74rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer",background:appTab===t?BLUE:"transparent",color:appTab===t?"#fff":"rgba(255,255,255,0.55)",boxShadow:appTab===t?"0 2px 10px rgba(74,134,200,0.45)":"none",letterSpacing:"-0.01em"}}>{label}</button>
             ))}
           </div>
         </div>
