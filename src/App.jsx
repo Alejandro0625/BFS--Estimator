@@ -1194,6 +1194,9 @@ export default function BFSEstimator() {
   const labelWarnN = reviewElevs.filter(e=>(e.flags||[]).some(f=>/implies ≈/.test(f))).length;  // typo'd markup labels caught by the backend
   const hasSchedule = !!(results?.scheduleData?.total_opening_sf>0);
   const reviewOk = reviewElevs.length>0 && defaultScaleN===0 && scaleWarnN===0 && labelWarnN===0;
+  // Estimator's LINEAR (LF) measurements — trim/soffit/fascia captured from polyline markups
+  const linearRollup = (()=>{ const m={}; (results?.takeoffData||[]).forEach(e=>(e.linearItems||[]).forEach(it=>{const k=dispName(it.material||"Linear");if(!m[k])m[k]=0;m[k]+=it.lf||0;})); return Object.entries(m).map(([material,lf])=>({material,lf})).sort((a,b)=>b.lf-a.lf); })();
+  const linearTotalLF = linearRollup.reduce((s,r)=>s+r.lf,0);
   const triage = reviewElevs.map(e=>({ ...elevConfidence(e) }));
   const readyN = triage.filter(t=>t.status==="ready").length;
   const reviewN = triage.filter(t=>t.status==="review").length;
@@ -1432,6 +1435,22 @@ export default function BFSEstimator() {
                   <div style={{fontSize:"1.05rem",fontWeight:800,color:"#92400E"}}>{Math.round(results.scheduleData.total_opening_sf).toLocaleString()} <span style={{fontSize:"0.62rem",fontWeight:400}}>SF</span></div>
                   <div style={{fontSize:"0.6rem",color:"#B45309",marginTop:2}}>{results.scheduleData.windows.length} window type{results.scheduleData.windows.length!==1?"s":""} · {results.scheduleData.doors.length} door type{results.scheduleData.doors.length!==1?"s":""} · exact from schedule</div>
                 </div>
+              </div>
+            )}
+
+            {/* Linear measurements (trim / soffit / fascia) captured from the estimator's polyline markups */}
+            {linearRollup.length>0&&(
+              <div>
+                <div style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"0.6rem"}}>Trim &amp; Linear · {Math.round(linearTotalLF).toLocaleString()} LF</div>
+                <div style={{border:"1px solid #E2E8F0",borderRadius:8,overflow:"hidden"}}>
+                  {linearRollup.map((r,i)=>(
+                    <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"0.4rem 0.7rem",fontSize:"0.7rem",background:i%2?"#F8FAFC":"#fff",borderTop:i?"1px solid #F1F5F9":"none"}}>
+                      <span style={{color:"#334155"}}>{r.material}</span>
+                      <span style={{fontWeight:700,color:"#0F172A"}}>{Math.round(r.lf).toLocaleString()} LF</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{fontSize:"0.58rem",color:"#64748B",marginTop:"0.4rem"}}>Captured from linear markups — priced per LF, separate from panel SF.</div>
               </div>
             )}
 
