@@ -1273,7 +1273,7 @@ export default function BFSEstimator() {
   const showUploadScreen = !showResults;
 
   return (
-    <div style={{fontFamily:"'Inter','Segoe UI',-apple-system,sans-serif",background:(appTab==="takeoff"&&showUploadScreen)?"#0C1B2E":"#F0F4F8",minHeight:"100vh",display:"flex",flexDirection:"column",color:"#1E293B"}}>
+    <div style={{fontFamily:"'Inter',system-ui,-apple-system,sans-serif",background:(appTab==="takeoff"&&showUploadScreen)?"#0C1B2E":"linear-gradient(180deg,#F5F8FC 0%,#E9F0F8 100%)",minHeight:"100vh",display:"flex",flexDirection:"column",color:"#1E293B"}}>
 
       {/* ── Header ── */}
       <header style={{background:NAVY,height:60,padding:"0 1.75rem",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,boxShadow:"0 1px 0 rgba(255,255,255,0.06)",zIndex:10}}>
@@ -1314,16 +1314,18 @@ export default function BFSEstimator() {
       {showUploadScreen&&(
         <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"2rem",position:"relative",overflow:"hidden"}}>
           {/* Background grid */}
-          <div style={{position:"absolute",inset:0,backgroundImage:`linear-gradient(rgba(74,134,200,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(74,134,200,0.04) 1px, transparent 1px)`,backgroundSize:"40px 40px",pointerEvents:"none"}}/>
+          <div style={{position:"absolute",inset:0,backgroundImage:`linear-gradient(rgba(74,134,200,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(74,134,200,0.05) 1px, transparent 1px)`,backgroundSize:"44px 44px",pointerEvents:"none",maskImage:"radial-gradient(ellipse 80% 60% at 50% 40%, #000 40%, transparent 100%)",WebkitMaskImage:"radial-gradient(ellipse 80% 60% at 50% 40%, #000 40%, transparent 100%)"}}/>
+          {/* Soft blue aura */}
+          <div style={{position:"absolute",top:"18%",left:"50%",transform:"translateX(-50%)",width:760,height:520,background:"radial-gradient(ellipse at center, rgba(74,134,200,0.28), rgba(74,134,200,0.06) 45%, transparent 70%)",filter:"blur(30px)",pointerEvents:"none"}}/>
 
           {/* Center card */}
           <div style={{position:"relative",width:"100%",maxWidth:540,display:"flex",flexDirection:"column",gap:"2rem"}}>
 
             {/* Hero text */}
             <div style={{textAlign:"center"}}>
-              <div style={{fontSize:"0.7rem",letterSpacing:"0.2em",color:BLUE,textTransform:"uppercase",fontWeight:600,marginBottom:"0.75rem"}}>Boston Facade Systems</div>
-              <h1 style={{fontSize:"2.25rem",fontWeight:800,color:"#fff",margin:0,letterSpacing:"-0.03em",lineHeight:1.1}}>AI Panel Estimator</h1>
-              <p style={{fontSize:"0.9rem",color:"rgba(255,255,255,0.35)",marginTop:"0.75rem",lineHeight:1.6}}>Upload your blueprint PDF and get a full material takeoff<br/>with SF breakdown by elevation in seconds.</p>
+              <div style={{fontSize:"0.68rem",letterSpacing:"0.28em",color:"#7FB0E0",textTransform:"uppercase",fontWeight:700,marginBottom:"0.9rem"}}>Boston Facade Systems</div>
+              <h1 style={{fontSize:"2.7rem",fontWeight:700,margin:0,letterSpacing:"-0.035em",lineHeight:1.04,fontFamily:"'Space Grotesk',sans-serif",background:"linear-gradient(180deg,#ffffff 30%,#AFCDEE)",WebkitBackgroundClip:"text",backgroundClip:"text",WebkitTextFillColor:"transparent"}}>AI Panel Estimator</h1>
+              <p style={{fontSize:"0.95rem",color:"rgba(255,255,255,0.6)",marginTop:"0.9rem",lineHeight:1.6}}>Upload your blueprint PDF and get a full material takeoff<br/>with SF breakdown by elevation in seconds.</p>
               <div style={{display:"flex",justifyContent:"center",gap:"1.1rem",marginTop:"1rem",flexWrap:"wrap"}}>
                 {["Measured from drawing geometry","Verified scale","Bid-ready Excel"].map(t=>(
                   <div key={t} style={{display:"flex",alignItems:"center",gap:"0.35rem",fontSize:"0.66rem",color:"rgba(255,255,255,0.5)"}}>
@@ -1340,15 +1342,17 @@ export default function BFSEstimator() {
               onDragOver={e=>{e.preventDefault();setDragOver(true);}}
               onDragLeave={()=>setDragOver(false)}
               style={{
-                border:`2px dashed ${dragOver?BLUE:file?"#22C55E":"rgba(74,134,200,0.35)"}`,
-                borderRadius:16,
-                padding:"2.5rem 2rem",
+                border:`1.5px dashed ${dragOver?BLUE:file?"#22C55E":"rgba(127,176,224,0.45)"}`,
+                borderRadius:18,
+                padding:"2.75rem 2rem",
                 textAlign:"center",
                 cursor:isRunning?"default":"pointer",
-                background:dragOver?"rgba(74,134,200,0.08)":file?"rgba(34,197,94,0.05)":"rgba(255,255,255,0.03)",
-                backdropFilter:"blur(8px)",
-                transition:"all 0.2s",
+                background:dragOver?"rgba(74,134,200,0.12)":file?"rgba(34,197,94,0.06)":"rgba(255,255,255,0.04)",
+                backdropFilter:"blur(10px)",
+                transition:"all 0.22s cubic-bezier(.2,.8,.2,1)",
                 position:"relative",
+                boxShadow:dragOver?"0 20px 60px -12px rgba(74,134,200,0.55), inset 0 1px 0 rgba(255,255,255,0.08)":"0 12px 40px -16px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06)",
+                transform:dragOver?"scale(1.015)":"scale(1)",
               }}>
               {!file&&!isRunning&&(
                 <>
