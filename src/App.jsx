@@ -1191,8 +1191,9 @@ export default function BFSEstimator() {
   const reviewElevs = (results?.takeoffData||[]).filter(e=>(e.zones||[]).some(z=>(z.netArea||0)>0));
   const defaultScaleN = reviewElevs.filter(e=>e.scaleSource==="default" || (!e.verifiedScale && !e.scale)).length;
   const scaleWarnN = reviewElevs.filter(e=>e.expectedFacadeSF && (e.zones||[]).reduce((s,z)=>s+(z.netArea||0),0) > e.expectedFacadeSF*1.4).length;
+  const labelWarnN = reviewElevs.filter(e=>(e.flags||[]).some(f=>/implies ≈/.test(f))).length;  // typo'd markup labels caught by the backend
   const hasSchedule = !!(results?.scheduleData?.total_opening_sf>0);
-  const reviewOk = reviewElevs.length>0 && defaultScaleN===0 && scaleWarnN===0;
+  const reviewOk = reviewElevs.length>0 && defaultScaleN===0 && scaleWarnN===0 && labelWarnN===0;
   const triage = reviewElevs.map(e=>({ ...elevConfidence(e) }));
   const readyN = triage.filter(t=>t.status==="ready").length;
   const reviewN = triage.filter(t=>t.status==="review").length;
@@ -1393,6 +1394,9 @@ export default function BFSEstimator() {
                     ? <div style={{color:"#B45309"}}>⚠ {defaultScaleN} used a default scale — open Interactive → Calibrate to confirm</div>
                     : <div style={{color:"#15803D"}}>✓ Scale read on every elevation</div>}
                   {scaleWarnN>0&&<div style={{color:"#B45309"}}>⚠ {scaleWarnN} measured bigger than the building face — likely a scale error</div>}
+                  {labelWarnN>0
+                    ? <div style={{color:"#B45309"}}>⚠ {labelWarnN} elevation{labelWarnN!==1?"s have":" has"} a region whose SF label doesn't match the drawing — likely a typo, verify below</div>
+                    : <div style={{color:"#15803D"}}>✓ Every SF label matches its region on the sheet</div>}
                   {hasSchedule
                     ? <div style={{color:"#15803D"}}>✓ Window/door openings exact (from schedule)</div>
                     : <div style={{color:"#92855B"}}>• Openings estimated (no schedule found)</div>}
