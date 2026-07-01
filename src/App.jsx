@@ -995,79 +995,79 @@ function ManualView({ results, BACKEND }) {
   const btn = (active) => ({ flex: 1, padding: "0.5rem", borderRadius: 8, border: "1px solid " + (active ? "transparent" : "#2D5280"), background: active ? "linear-gradient(180deg,#5A92D2,#3F79BC)" : "transparent", color: active ? "#fff" : "#94A3B8", fontSize: "0.66rem", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", boxShadow: active ? "0 4px 12px -3px rgba(74,134,200,0.5)" : "none", letterSpacing: "-0.01em" });
 
   return (
-    <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden", background: NAVY, fontFamily: "'Inter','Segoe UI',sans-serif" }}>
-      <div style={{ width: 160, borderRight: "1px solid " + NAVY_LT, overflowY: "auto", flexShrink: 0, background: NAVY_MID }}>
-        <div style={{ padding: "0.8rem", fontSize: "0.6rem", letterSpacing: "0.12em", color: "#64748B", textTransform: "uppercase", fontWeight: 700, borderBottom: "1px solid " + NAVY_LT }}>Pages</div>
-        {elevations.map((e, i) => <div key={i} onClick={() => setElevIdx(i)} style={{ padding: "0.6rem 0.8rem", cursor: "pointer", borderBottom: "1px solid " + NAVY_LT, background: i === elevIdx ? NAVY_LT : "transparent", fontSize: "0.7rem", color: i === elevIdx ? "#E2E8F0" : "#94A3B8", borderLeft: i === elevIdx ? "3px solid " + BLUE : "3px solid transparent" }}>{e.title || "Page " + e.pageNumber}</div>)}
+    <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden", background: "linear-gradient(180deg,#F5F8FC,#E9F0F8)", fontFamily: "'Inter',system-ui,sans-serif" }}>
+      <div style={{ width: 176, borderRight: "1px solid #E4EAF1", overflowY: "auto", flexShrink: 0, background: "#fff" }}>
+        <div style={{ padding: "0.95rem", fontSize: "0.6rem", letterSpacing: "0.13em", color: "#94A3B8", textTransform: "uppercase", fontWeight: 700, borderBottom: "1px solid #EEF2F7" }}>Pages</div>
+        {elevations.map((e, i) => <div key={i} onClick={() => setElevIdx(i)} style={{ padding: "0.68rem 0.95rem", cursor: "pointer", borderBottom: "1px solid #F1F5F9", background: i === elevIdx ? "#EFF5FC" : "transparent", fontSize: "0.72rem", color: i === elevIdx ? "#0F2138" : "#64748B", fontWeight: i === elevIdx ? 600 : 500, borderLeft: i === elevIdx ? "3px solid #3F79BC" : "3px solid transparent" }}>{e.title || "Page " + e.pageNumber}</div>)}
       </div>
-      <div ref={wrapRef} style={{ flex: 1, overflow: "auto", padding: "1rem" }}>
-        <div style={{ fontSize: "0.62rem", color: "#94A3B8", marginBottom: "0.5rem" }}>
-          {!calib ? "① Set scale first: click 'Set scale', click two points a known distance apart, type the feet." : mode === "cut" ? "Cut-out mode: click around a window/door, then Finish — it subtracts." : "Click around the wall, then Finish. SF uses your scale."}
+      <div ref={wrapRef} style={{ flex: 1, overflow: "auto", padding: "1.25rem" }}>
+        <div style={{ fontSize: "0.64rem", color: "#64748B", marginBottom: "0.65rem" }}>
+          {!calib ? "① Set scale first: click 'Scale', click two points a known distance apart, type the feet." : mode === "cut" ? "Cut-out mode: click around a window/door, then Finish — it subtracts." : "Click around the wall, then Finish. SF uses your scale."}
         </div>
-        {img ? <Stage width={stageW} height={stageH} onMouseDown={onDown}>
+        {img ? <div style={{ display:"inline-block", borderRadius:10, overflow:"hidden", boxShadow:"0 12px 40px -14px rgba(15,23,42,0.30), 0 0 0 1px #E1E8F0" }}><Stage width={stageW} height={stageH} onMouseDown={onDown}>
           <Layer>
             <KImage image={img} width={stageW} height={stageH} />
             {shapes.map(s => {
               const flat = s.points.flatMap(([nx, ny]) => [nx * stageW, ny * stageH]);
               const sel = selId === s.id;
               return <Line key={s.id} points={flat} closed fill={s.color + (s.type === "cut" ? "55" : sel ? "66" : "40")}
-                stroke={sel ? "#fff" : s.color} strokeWidth={sel ? 2.5 : 1.5} dash={s.type === "cut" ? [8, 5] : undefined}
+                stroke={sel ? "#1E293B" : s.color} strokeWidth={sel ? 2.5 : 1.5} dash={s.type === "cut" ? [8, 5] : undefined}
                 onClick={() => setSelId(s.id)} onTap={() => setSelId(s.id)} />;
             })}
-            {draft.length > 0 && <Line points={draft.flatMap(([nx, ny]) => [nx * stageW, ny * stageH])} stroke="#FBBF24" strokeWidth={2} dash={[6, 4]} />}
-            {draft.map(([nx, ny], i) => <Circle key={i} x={nx * stageW} y={ny * stageH} radius={4} fill="#FBBF24" />)}
+            {draft.length > 0 && <Line points={draft.flatMap(([nx, ny]) => [nx * stageW, ny * stageH])} stroke="#F59E0B" strokeWidth={2} dash={[6, 4]} />}
+            {draft.map(([nx, ny], i) => <Circle key={i} x={nx * stageW} y={ny * stageH} radius={4} fill="#F59E0B" />)}
             {calibPts.map(([nx, ny], i) => <Circle key={"c" + i} x={nx * stageW} y={ny * stageH} radius={5} fill="#10B981" stroke="#fff" strokeWidth={1} />)}
             {calibPts.length === 2 && <Line points={calibPts.flatMap(([nx, ny]) => [nx * stageW, ny * stageH])} stroke="#10B981" strokeWidth={2} />}
           </Layer>
-        </Stage> : <div style={{ color: "#475569", fontSize: "0.8rem", marginTop: "3rem" }}>{elevations.length ? "Loading drawing…" : "Run a drawing in the Takeoff tab first, then draw on it here."}</div>}
+        </Stage></div> : <div style={{ color: "#94A3B8", fontSize: "0.82rem", marginTop: "3rem" }}>{elevations.length ? "Loading drawing…" : "Run a drawing in the Takeoff tab first, then edit it here."}</div>}
       </div>
-      <div style={{ width: 230, borderLeft: "1px solid " + NAVY_LT, padding: "1rem", background: NAVY_MID, overflowY: "auto", flexShrink: 0 }}>
-        <div style={{ display: "flex", gap: "0.3rem", marginBottom: "0.5rem" }}>
+      <div style={{ width: 250, borderLeft: "1px solid #E4EAF1", padding: "1.1rem", background: "#fff", overflowY: "auto", flexShrink: 0 }}>
+        <div style={{ display: "flex", gap: "0.35rem", marginBottom: "0.65rem" }}>
           <button style={btn(mode === "add")} onClick={() => setMode("add")}>+ Area</button>
           <button style={btn(mode === "cut")} onClick={() => setMode("cut")}>– Cut-out</button>
           <button style={btn(mode === "calib")} onClick={() => { setMode("calib"); setCalibPts([]); }}>Scale</button>
         </div>
-        {mode === "calib" && <div style={{ background: NAVY_LT, borderRadius: 8, padding: "0.6rem", marginBottom: "0.6rem" }}>
-          <div style={{ fontSize: "0.6rem", color: "#94A3B8", marginBottom: "0.35rem" }}>Click 2 points on a known dimension ({calibPts.length}/2), then enter feet:</div>
+        {mode === "calib" && <div style={{ background: "#F8FAFC", borderRadius: 9, padding: "0.7rem", marginBottom: "0.65rem", border: "1px solid #EEF2F7" }}>
+          <div style={{ fontSize: "0.62rem", color: "#64748B", marginBottom: "0.4rem" }}>Click 2 points on a known dimension ({calibPts.length}/2), then enter feet:</div>
           <div style={{ display: "flex", gap: "0.35rem" }}>
-            <input value={realFt} onChange={e => setRealFt(e.target.value)} placeholder="feet" style={{ flex: 1, minWidth: 0, background: NAVY, border: "1px solid #2D5280", borderRadius: 6, color: "#fff", fontSize: "0.7rem", padding: "0.4rem", fontFamily: "inherit" }} />
-            <button onClick={applyCalib} style={{ background: BLUE, border: "none", borderRadius: 6, color: "#fff", fontSize: "0.66rem", fontWeight: 700, padding: "0 0.6rem", cursor: "pointer", fontFamily: "inherit" }}>Set</button>
+            <input value={realFt} onChange={e => setRealFt(e.target.value)} placeholder="feet" style={{ flex: 1, minWidth: 0, background: "#fff", border: "1px solid #D8E2EE", borderRadius: 7, color: "#0F172A", fontSize: "0.72rem", padding: "0.45rem", fontFamily: "inherit" }} />
+            <button onClick={applyCalib} style={{ background: "linear-gradient(180deg,#5A92D2,#3F79BC)", border: "none", borderRadius: 7, color: "#fff", fontSize: "0.66rem", fontWeight: 600, padding: "0 0.7rem", cursor: "pointer", fontFamily: "inherit" }}>Set</button>
           </div>
         </div>}
-        {draft.length > 0 && <button onClick={finish} style={{ width: "100%", padding: "0.5rem", marginBottom: "0.6rem", background: "#15803D", border: "none", borderRadius: 7, color: "#fff", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>✓ Finish shape ({draft.length} pts)</button>}
-        <div style={{ fontSize: "0.58rem", color: calib ? "#4ADE80" : "#F87171", marginBottom: "0.6rem" }}>{calib ? "✓ Scale set" : "⚠ Set scale to get SF"}</div>
-        <div style={{ marginBottom: "0.65rem" }}>
-          <div style={{ fontSize: "0.6rem", color: "#64748B", marginBottom: "0.3rem" }}>Color (= material) for new shapes:</div>
-          <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
-            {COLS.map(c => <div key={c} onClick={() => setCurColor(c)} style={{ width: 22, height: 22, borderRadius: 5, background: c, cursor: "pointer", border: curColor === c ? "2px solid #fff" : "2px solid rgba(255,255,255,0.15)" }} />)}
+        {draft.length > 0 && <button onClick={finish} style={{ width: "100%", padding: "0.6rem", marginBottom: "0.65rem", background: "linear-gradient(180deg,#22A860,#16874B)", border: "none", borderRadius: 9, color: "#fff", fontSize: "0.73rem", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", boxShadow: "0 6px 16px -5px rgba(21,128,61,0.5)" }}>✓ Finish shape ({draft.length} pts)</button>}
+        <div style={{ fontSize: "0.6rem", color: calib ? "#15803D" : "#DC2626", marginBottom: "0.7rem", fontWeight: 600 }}>{calib ? "✓ Scale set" : "⚠ Set scale to get SF"}</div>
+        <div style={{ marginBottom: "0.7rem" }}>
+          <div style={{ fontSize: "0.6rem", color: "#94A3B8", marginBottom: "0.35rem", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Color = material</div>
+          <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
+            {COLS.map(c => <div key={c} onClick={() => setCurColor(c)} style={{ width: 24, height: 24, borderRadius: 6, background: c, cursor: "pointer", border: curColor === c ? "2px solid #1E293B" : "2px solid #E4EAF1" }} />)}
           </div>
         </div>
-        <div style={{ fontSize: "0.6rem", letterSpacing: "0.1em", color: "#64748B", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.4rem" }}>Shapes ({shapes.length})</div>
+        <div style={{ fontSize: "0.6rem", letterSpacing: "0.08em", color: "#94A3B8", textTransform: "uppercase", fontWeight: 600, marginBottom: "0.45rem" }}>Shapes ({shapes.length})</div>
         {shapes.map(s => {
           const sel = selId === s.id;
-          return <div key={s.id} onClick={() => setSelId(s.id)} style={{ padding: "0.5rem 0.6rem", marginBottom: "0.35rem", background: sel ? NAVY_LT : NAVY, borderRadius: 6, cursor: "pointer", borderLeft: "3px solid " + s.color }}>
+          return <div key={s.id} onClick={() => setSelId(s.id)} style={{ padding: "0.55rem 0.65rem", marginBottom: "0.4rem", background: sel ? "#EFF5FC" : "#F8FAFC", borderRadius: 8, cursor: "pointer", borderLeft: "3px solid " + s.color, border: sel ? "1px solid #CFE0F2" : "1px solid #EEF2F7" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.4rem" }}>
-              <input value={s.name} onClick={e => e.stopPropagation()} onChange={e => rename(s.id, e.target.value)} style={{ flex: 1, minWidth: 0, background: "transparent", border: "none", color: "#CBD5E1", fontSize: "0.65rem", fontFamily: "inherit" }} />
-              <span style={{ fontSize: "0.72rem", fontWeight: 700, color: s.type === "cut" ? "#F87171" : "#E2E8F0" }}>{s.type === "cut" ? "–" : ""}{Math.round(areaSF(s)).toLocaleString()} SF</span>
+              <input value={s.name} onClick={e => e.stopPropagation()} onChange={e => rename(s.id, e.target.value)} style={{ flex: 1, minWidth: 0, background: "transparent", border: "none", color: "#334155", fontSize: "0.67rem", fontFamily: "inherit", fontWeight: 500 }} />
+              <span style={{ fontSize: "0.73rem", fontWeight: 700, color: s.type === "cut" ? "#DC2626" : "#0F172A" }}>{s.type === "cut" ? "–" : ""}{Math.round(areaSF(s)).toLocaleString()} SF</span>
             </div>
-            {sel && <div onClick={e => { e.stopPropagation(); del(s.id); }} style={{ marginTop: "0.4rem", fontSize: "0.6rem", color: "#F87171", textAlign: "center", border: "1px solid #7F1D1D", borderRadius: 5, padding: "0.25rem", cursor: "pointer" }}>Delete</div>}
+            {sel && <div onClick={e => { e.stopPropagation(); del(s.id); }} style={{ marginTop: "0.4rem", fontSize: "0.6rem", color: "#DC2626", textAlign: "center", border: "1px solid #FECACA", borderRadius: 6, padding: "0.28rem", cursor: "pointer" }}>Delete</div>}
           </div>;
         })}
         {Object.keys(byColor).length > 0 && <>
-          <div style={{ fontSize: "0.6rem", letterSpacing: "0.1em", color: "#64748B", textTransform: "uppercase", fontWeight: 700, margin: "0.85rem 0 0.4rem" }}>Totals by color</div>
+          <div style={{ fontSize: "0.6rem", letterSpacing: "0.08em", color: "#94A3B8", textTransform: "uppercase", fontWeight: 600, margin: "0.9rem 0 0.45rem" }}>Totals by material</div>
           {Object.entries(byColor).map(([c, d]) => (
-            <div key={c} style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.45rem 0.55rem", marginBottom: "0.3rem", background: NAVY, borderRadius: 6, borderLeft: "3px solid " + c }}>
+            <div key={c} style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.5rem 0.6rem", marginBottom: "0.35rem", background: "#F8FAFC", borderRadius: 8, borderLeft: "3px solid " + c, border: "1px solid #EEF2F7" }}>
               <div style={{ width: 12, height: 12, borderRadius: 3, background: c, flexShrink: 0 }} />
-              <input value={colorNames[c] || ""} onChange={e => setColorNames(p => ({ ...p, [c]: e.target.value }))} placeholder="name this color…" style={{ flex: 1, minWidth: 0, background: "transparent", border: "none", color: "#CBD5E1", fontSize: "0.64rem", fontFamily: "inherit" }} />
-              <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "#E2E8F0" }}>{Math.round(d.sf).toLocaleString()} SF</span>
+              <input value={colorNames[c] || ""} onChange={e => setColorNames(p => ({ ...p, [c]: e.target.value }))} placeholder="name this material…" style={{ flex: 1, minWidth: 0, background: "transparent", border: "none", color: "#334155", fontSize: "0.65rem", fontFamily: "inherit" }} />
+              <span style={{ fontSize: "0.73rem", fontWeight: 700, color: "#0F172A" }}>{Math.round(d.sf).toLocaleString()} SF</span>
             </div>
           ))}
         </>}
-        <div style={{ marginTop: "0.75rem", padding: "0.6rem 0.75rem", background: NAVY_LT, borderRadius: 8, border: "1px solid " + BLUE + "40" }}>
-          <div style={{ fontSize: "0.6rem", color: "#4ADE80", fontWeight: 700 }}>NET TOTAL (all colors)</div>
-          <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "#4ADE80" }}>{Math.round(total).toLocaleString()} <span style={{ fontSize: "0.65rem", fontWeight: 400 }}>SF</span></div>
+        <div style={{ marginTop: "0.85rem", padding: "0.75rem 0.85rem", background: "linear-gradient(180deg,#F0F9F4,#E3F5EA)", borderRadius: 10, border: "1px solid #BBF0CE" }}>
+          <div style={{ fontSize: "0.58rem", color: "#15803D", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>Net total</div>
+          <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "#15803D", letterSpacing: "-0.02em" }}>{Math.round(total).toLocaleString()} <span style={{ fontSize: "0.65rem", fontWeight: 500 }}>SF</span></div>
         </div>
-        <div style={{ fontSize: "0.56rem", color: "#64748B", marginTop: "0.6rem", lineHeight: 1.5 }}>{taught === "saved" ? "🧠 Learned from this drawing." : "🧠 The AI learns from this automatically — what you draw here teaches it to do it next time."}</div>
+        <div style={{ fontSize: "0.58rem", color: "#94A3B8", marginTop: "0.65rem", lineHeight: 1.5 }}>{taught === "saved" ? "Learned from this drawing." : "The AI learns from your edits automatically — what you change here teaches it for next time."}</div>
       </div>
     </div>
   );
@@ -1277,13 +1277,13 @@ export default function BFSEstimator() {
     <div style={{fontFamily:"'Inter',system-ui,-apple-system,sans-serif",background:(appTab==="takeoff"&&showUploadScreen)?"#0C1B2E":"linear-gradient(180deg,#F5F8FC 0%,#E9F0F8 100%)",minHeight:"100vh",display:"flex",flexDirection:"column",color:"#1E293B"}}>
 
       {/* ── Header ── */}
-      <header style={{background:"linear-gradient(180deg,#0F2138,#0B1728)",height:82,padding:"0 2.1rem",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,boxShadow:"0 1px 0 rgba(255,255,255,0.06), 0 4px 24px -8px rgba(0,0,0,0.5)",zIndex:10}}>
-        <div style={{display:"flex",alignItems:"center",gap:"1.1rem"}}>
-          <img src="/logo-bfs.png" alt="BFS" style={{height:56,width:"auto"}}/>
-          <div style={{width:1,height:46,background:"rgba(255,255,255,0.12)"}}/>
+      <header style={{background:"linear-gradient(180deg,#0F2138,#0B1728)",height:96,padding:"0 2.4rem",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,boxShadow:"0 1px 0 rgba(255,255,255,0.06), 0 6px 28px -8px rgba(0,0,0,0.55)",zIndex:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:"1.25rem"}}>
+          <img src="/logo-bfs.png" alt="BFS" style={{height:66,width:"auto"}}/>
+          <div style={{width:1,height:54,background:"rgba(255,255,255,0.13)"}}/>
           <div>
-            <div style={{fontSize:"0.6rem",letterSpacing:"0.26em",color:"rgba(255,255,255,0.45)",textTransform:"uppercase",fontWeight:600,marginBottom:1}}>Boston Facade Systems</div>
-            <div style={{fontSize:"1.22rem",fontWeight:600,color:"#fff",letterSpacing:"-0.025em",fontFamily:"'Space Grotesk',sans-serif"}}>AI Panel Estimator</div>
+            <div style={{fontSize:"0.64rem",letterSpacing:"0.27em",color:"rgba(255,255,255,0.46)",textTransform:"uppercase",fontWeight:600,marginBottom:2}}>Boston Facade Systems</div>
+            <div style={{fontSize:"1.4rem",fontWeight:600,color:"#fff",letterSpacing:"-0.025em",fontFamily:"'Space Grotesk',sans-serif"}}>AI Panel Estimator</div>
           </div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:"1rem"}}>
