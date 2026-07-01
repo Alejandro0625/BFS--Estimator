@@ -559,6 +559,14 @@ function ScopeView() {
       return wb.SheetNames.map(n=>`# Sheet: ${n}\n`+XLSX.utils.sheet_to_csv(wb.Sheets[n])).join("\n\n");
     }
     if (name.endsWith(".txt")) return await f.text();
+    if (name.endsWith(".pdf")) {
+      const fd = new FormData(); fd.append("pdf", f);
+      const r = await fetch(BACKEND + "/scope-read", { method:"POST", body: fd });
+      if (!r.ok) throw new Error("PDF read failed ("+r.status+")");
+      const d = await r.json();
+      if (!d.text || d.text.replace(/\s/g,"").length < 60) throw new Error("This PDF looks scanned (image-only) — upload the Excel, or a text-based PDF.");
+      return d.text;
+    }
     return null;
   };
   const analyze = async (text) => {
@@ -597,7 +605,7 @@ ${text.slice(0,30000)}`;
     setScopeFile(f); setResult(null); setError("");
     try {
       const text = await extractText(f);
-      if(text===null){ setError("PDF / Word reading is coming next — for now upload the Excel (.xlsx) or a text version of the scope."); return; }
+      if(text===null){ setError("Upload the scope as Excel (.xlsx), PDF, or a text file."); return; }
       setBusy(true);
       setResult(await analyze(text));
     } catch(e){ setError("Couldn't read that scope sheet: "+e.message); }
