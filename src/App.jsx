@@ -1,3 +1,4 @@
+// BFS AI Panel Estimator — UI build v2 (bigger header, cross-tab gradient design)
 import { useState, useRef, useEffect, useCallback } from "react";
 import * as XLSX from "xlsx";
 import { Stage, Layer, Line, Circle, Image as KImage } from "react-konva";
