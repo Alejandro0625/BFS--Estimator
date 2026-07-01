@@ -299,7 +299,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
           {calibMode&&calibPts.length===2&&<div style={{display:"flex",alignItems:"center",gap:"0.35rem",fontSize:"0.65rem",color:"#CBD5E1"}}>
             <span>Real distance (ft):</span>
             <input value={realDist} onChange={e=>setRealDist(e.target.value)} onKeyDown={e=>e.key==="Enter"&&applyCalibration()} placeholder="e.g. 20" style={{width:64,padding:"0.25rem 0.4rem",borderRadius:5,border:"1px solid #2D5280",background:NAVY,color:"#E2E8F0",fontSize:"0.65rem",fontFamily:"inherit"}}/>
-            <button onClick={applyCalibration} style={{fontSize:"0.65rem",padding:"0.25rem 0.6rem",borderRadius:5,border:"none",background:BLUE,color:"#fff",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>Apply</button>
+            <button onClick={applyCalibration} style={{fontSize:"0.65rem",padding:"0.25rem 0.6rem",borderRadius:5,border:"none",background:"linear-gradient(180deg,#5A92D2,#3F79BC)",color:"#fff",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>Apply</button>
           </div>}
         </div>
         {!pageImage?<div style={{color:"#475569",fontSize:"0.8rem",marginTop:"4rem"}}>Loading elevation...</div>:
@@ -341,7 +341,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
               <div style={{fontSize:"0.6rem",color:"#64748B",marginBottom:"0.3rem"}}>Name this group → applies to <b style={{color:"#94A3B8"}}>every page</b> + the Excel:</div>
               <div style={{display:"flex",gap:"0.35rem"}}>
                 <input value={groupNameDraft} onChange={e=>setGroupNameDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")renameGroup(groupNameDraft);}} placeholder="e.g. Metal Panel" style={{flex:1,minWidth:0,background:NAVY,border:"1px solid #2D5280",borderRadius:6,color:"#fff",fontSize:"0.7rem",padding:"0.4rem 0.5rem",fontFamily:"inherit"}}/>
-                <button onClick={()=>renameGroup(groupNameDraft)} style={{background:BLUE,border:"none",borderRadius:6,color:"#fff",fontSize:"0.66rem",fontWeight:700,padding:"0 0.65rem",cursor:"pointer",fontFamily:"inherit"}}>Set</button>
+                <button onClick={()=>renameGroup(groupNameDraft)} style={{background:"linear-gradient(180deg,#5A92D2,#3F79BC)",border:"none",borderRadius:6,color:"#fff",fontSize:"0.66rem",fontWeight:700,padding:"0 0.65rem",cursor:"pointer",fontFamily:"inherit"}}>Set</button>
               </div>
             </div>
             {learnedMat&&<div onClick={()=>assignGroup({id:learnedMat.id,name:learnedMat.materialName,category:learnedMat.category})} style={{display:"flex",alignItems:"center",gap:"0.5rem",padding:"0.5rem 0.65rem",cursor:"pointer",background:"#064E3B",borderRadius:6,border:"1px solid #10B981",marginBottom:"0.6rem"}}>
@@ -403,7 +403,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
                 <div style={{fontSize:"1.4rem",fontWeight:700,color:"#4ADE80"}}>{Math.round(grandTotal*1.15).toLocaleString()} <span style={{fontSize:"0.65rem",fontWeight:400}}>SF</span></div>
                 <div style={{fontSize:"0.6rem",color:"#475569"}}>+15% waste factor</div>
               </div>
-              <button onClick={exportInteractiveExcel} style={{width:"100%",padding:"0.65rem",background:BLUE,color:"#fff",border:"none",borderRadius:7,fontSize:"0.72rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>↓ Export Excel</button>
+              <button onClick={exportInteractiveExcel} style={{width:"100%",padding:"0.65rem",background:"linear-gradient(180deg,#5A92D2,#3F79BC)",color:"#fff",border:"none",borderRadius:7,fontSize:"0.72rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>↓ Export Excel</button>
             </>}
             {Object.keys(clusterSummary).length===0&&Object.keys(totals).length===0&&<div style={{fontSize:"0.7rem",color:"#475569",lineHeight:1.8}}>Click any colored area → every area with that same hatch selects and shows its total SF.</div>}
             <div style={{marginTop:"1rem",fontSize:"0.6rem",color:"#334155"}}>{Object.keys(assignments).length} areas tagged · {elevations.length} elevations</div>
@@ -732,7 +732,7 @@ function ModelView() {
             <div key={m} style={{display:"flex",alignItems:"center",gap:"0.6rem",marginBottom:"0.5rem"}}>
               <div style={{width:160,fontSize:"0.7rem",color:"#374151",flexShrink:0}}>{m}</div>
               <div style={{flex:1,height:14,background:"#F1F5F9",borderRadius:7,overflow:"hidden"}}>
-                <div style={{width:(n/maxN*100)+"%",height:"100%",background:BLUE,borderRadius:7}}/>
+                <div style={{width:(n/maxN*100)+"%",height:"100%",background:"linear-gradient(180deg,#5A92D2,#3F79BC)",borderRadius:7}}/>
               </div>
               <div style={{width:56,textAlign:"right",fontSize:"0.66rem",color:"#64748B",fontWeight:700}}>{n.toLocaleString()}</div>
             </div>
@@ -991,7 +991,7 @@ function ManualView({ results, BACKEND }) {
     return () => clearTimeout(t);
   }, [shapes, colorNames, results?.jobId, pageNum, BACKEND]);
 
-  const btn = (active) => ({ flex: 1, padding: "0.45rem", borderRadius: 7, border: "1px solid " + (active ? BLUE : "#2D5280"), background: active ? BLUE : "transparent", color: active ? "#fff" : "#94A3B8", fontSize: "0.66rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" });
+  const btn = (active) => ({ flex: 1, padding: "0.5rem", borderRadius: 8, border: "1px solid " + (active ? "transparent" : "#2D5280"), background: active ? "linear-gradient(180deg,#5A92D2,#3F79BC)" : "transparent", color: active ? "#fff" : "#94A3B8", fontSize: "0.66rem", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", boxShadow: active ? "0 4px 12px -3px rgba(74,134,200,0.5)" : "none", letterSpacing: "-0.01em" });
 
   return (
     <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden", background: NAVY, fontFamily: "'Inter','Segoe UI',sans-serif" }}>
@@ -1276,20 +1276,20 @@ export default function BFSEstimator() {
     <div style={{fontFamily:"'Inter',system-ui,-apple-system,sans-serif",background:(appTab==="takeoff"&&showUploadScreen)?"#0C1B2E":"linear-gradient(180deg,#F5F8FC 0%,#E9F0F8 100%)",minHeight:"100vh",display:"flex",flexDirection:"column",color:"#1E293B"}}>
 
       {/* ── Header ── */}
-      <header style={{background:NAVY,height:60,padding:"0 1.75rem",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,boxShadow:"0 1px 0 rgba(255,255,255,0.06)",zIndex:10}}>
-        <div style={{display:"flex",alignItems:"center",gap:"0.875rem"}}>
-          <img src="/logo-bfs.png" alt="BFS" style={{height:40,width:"auto"}}/>
-          <div style={{width:1,height:32,background:"rgba(255,255,255,0.1)"}}/>
+      <header style={{background:"linear-gradient(180deg,#0F2138,#0B1728)",height:82,padding:"0 2.1rem",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,boxShadow:"0 1px 0 rgba(255,255,255,0.06), 0 4px 24px -8px rgba(0,0,0,0.5)",zIndex:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:"1.1rem"}}>
+          <img src="/logo-bfs.png" alt="BFS" style={{height:56,width:"auto"}}/>
+          <div style={{width:1,height:46,background:"rgba(255,255,255,0.12)"}}/>
           <div>
-            <div style={{fontSize:"0.55rem",letterSpacing:"0.24em",color:"rgba(255,255,255,0.42)",textTransform:"uppercase",fontWeight:600}}>Boston Facade Systems</div>
-            <div style={{fontSize:"1.02rem",fontWeight:600,color:"#fff",letterSpacing:"-0.02em",fontFamily:"'Space Grotesk',sans-serif"}}>AI Panel Estimator</div>
+            <div style={{fontSize:"0.6rem",letterSpacing:"0.26em",color:"rgba(255,255,255,0.45)",textTransform:"uppercase",fontWeight:600,marginBottom:1}}>Boston Facade Systems</div>
+            <div style={{fontSize:"1.22rem",fontWeight:600,color:"#fff",letterSpacing:"-0.025em",fontFamily:"'Space Grotesk',sans-serif"}}>AI Panel Estimator</div>
           </div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:"1rem"}}>
           {appTab==="takeoff"&&showResults&&(
             <div style={{display:"flex",gap:"0.5rem"}}>
               <button onClick={exportExcel} style={{padding:"0.45rem 1rem",background:"transparent",color:"rgba(255,255,255,0.7)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↓ Excel</button>
-              <button onClick={exportPDF} disabled={pdfLoading} style={{padding:"0.45rem 1rem",background:BLUE,color:"#fff",border:"none",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↓ {pdfLoading?"Generating...":"Evidence PDF"}</button>
+              <button onClick={exportPDF} disabled={pdfLoading} style={{padding:"0.45rem 1rem",background:"linear-gradient(180deg,#5A92D2,#3F79BC)",color:"#fff",border:"none",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↓ {pdfLoading?"Generating...":"Evidence PDF"}</button>
               <button onClick={saveBid} style={{padding:"0.45rem 1rem",background:"transparent",color:"rgba(255,255,255,0.7)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>💾 Save</button>
               <button onClick={()=>{setFile(null);setPhase("idle");setResults(null);setLog([]);setAssignments({});}} style={{padding:"0.45rem 1rem",background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.6)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↺ New</button>
             </div>
@@ -1373,7 +1373,7 @@ export default function BFSEstimator() {
                 <div style={{padding:"0.5rem 0"}}>
                   <div style={{fontSize:"0.72rem",color:"rgba(255,255,255,0.4)",marginBottom:"0.75rem",letterSpacing:"0.05em"}}>{progress.label||"Analyzing..."}</div>
                   <div style={{background:"rgba(255,255,255,0.08)",borderRadius:8,height:6,overflow:"hidden",marginBottom:"0.75rem"}}>
-                    <div style={{width:(progress.pct||0)+"%",height:"100%",background:BLUE,borderRadius:8,transition:"width 0.4s"}}/>
+                    <div style={{width:(progress.pct||0)+"%",height:"100%",background:"linear-gradient(180deg,#5A92D2,#3F79BC)",borderRadius:8,transition:"width 0.4s"}}/>
                   </div>
                   {/* Steps */}
                   <div style={{display:"flex",justifyContent:"center",gap:"1.5rem"}}>
@@ -1392,7 +1392,7 @@ export default function BFSEstimator() {
             {/* CTA Button */}
             {!isRunning&&(
               <button onClick={run} disabled={!file}
-                style={{padding:"0.9rem",borderRadius:10,fontSize:"0.85rem",fontWeight:700,fontFamily:"inherit",border:"none",cursor:file?"pointer":"not-allowed",letterSpacing:"0.02em",transition:"all 0.2s",background:file?BLUE:"rgba(255,255,255,0.06)",color:file?"#fff":"rgba(255,255,255,0.2)",boxShadow:file?"0 4px 20px rgba(74,134,200,0.4)":"none"}}>
+                style={{padding:"0.95rem",borderRadius:12,fontSize:"0.85rem",fontWeight:600,fontFamily:"inherit",border:"none",cursor:file?"pointer":"not-allowed",letterSpacing:"-0.01em",background:file?"linear-gradient(180deg,#5A92D2,#3F79BC)":"rgba(255,255,255,0.06)",color:file?"#fff":"rgba(255,255,255,0.2)",boxShadow:file?"0 10px 30px -6px rgba(74,134,200,0.6)":"none"}}>
                 {phase==="error"?"↺  Try Again":"▶  Run Analysis"}
               </button>
             )}
