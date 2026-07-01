@@ -180,11 +180,12 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     id:i,points:[[z.x0pct/100,z.y0pct/100],[z.x1pct/100,z.y0pct/100],[z.x1pct/100,z.y1pct/100],[z.x0pct/100,z.y1pct/100]],
     area_sf:z.netArea||0,cx:(z.x0pct+z.x1pct)/200,cy:(z.y0pct+z.y1pct)/200,source:"box",
   }));
-  // When the user calibrates the scale, recompute SF from polygon geometry (real polygons only)
+  // When the user calibrates the scale, recompute SF from polygon geometry — but NEVER for
+  // zones whose SF is the estimator's own measured label (sf_exact) or texture net SF. Those are ground truth.
   const displayZones = calibFt
-    ? rawZones.map(z => (z.source && z.source!=="box" && z.source!=="texture")
+    ? rawZones.map(z => (z.source && z.source!=="box" && z.source!=="texture" && !z.sf_exact)
         ? {...z, area_sf: polyAreaSF(z.points, calibFt, pageDims.width, pageDims.height)}
-        : z)   // texture groups keep their backend net SF (openings already cut out)
+        : z)   // digitize-markup (exact label) + texture groups keep their trusted backend SF
     : rawZones;
   // Effective scale: calibrated value, else back it out from a zone's known SF + geometry
   const effFtPerInch = calibFt || (()=>{
