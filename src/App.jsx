@@ -892,6 +892,7 @@ function ManualView({ results, BACKEND }) {
   const [curColor, setCurColor] = useState("#4A86C8");
   const [colorNames, setColorNames] = useState({});   // color -> material name
   const [taught, setTaught] = useState(null);
+  const [snapPts, setSnapPts] = useState([]);          // drawing's real CAD corners (Bluebeam-style snap)
 
   useEffect(() => {
     if (!pageNum || !results?.jobId) { setImg(null); return; }
@@ -900,6 +901,9 @@ function ManualView({ results, BACKEND }) {
     im.crossOrigin = "anonymous";
     im.src = BACKEND + "/page-image/" + results.jobId + "/" + pageNum;
     im.onload = () => { setImg(im); setPageDims({ width: im.naturalWidth || 612, height: im.naturalHeight || 792 }); };
+    setSnapPts([]);
+    fetch(BACKEND + "/snap-points/" + results.jobId + "/" + pageNum)
+      .then(r => r.ok ? r.json() : { points: [] }).then(d => setSnapPts(d.points || [])).catch(() => setSnapPts([]));
   }, [elevIdx, pageNum, results?.jobId, BACKEND]);
 
   useEffect(() => {
@@ -925,9 +929,18 @@ function ManualView({ results, BACKEND }) {
   const byColor = {};
   shapes.forEach(s => { if (!byColor[s.color]) byColor[s.color] = { sf: 0, n: 0 }; byColor[s.color].sf += (s.type === "cut" ? -1 : 1) * areaSF(s); byColor[s.color].n++; });
 
+  // snap a click to the drawing's nearest real CAD corner (Bluebeam Area-tool behavior) — within ~14px
+  const snapTo = (nx, ny) => {
+    let best = null, bd = 14;
+    for (const c of snapPts) {
+      const d = Math.hypot((c[0] - nx) * stageW, (c[1] - ny) * stageH);
+      if (d < bd) { bd = d; best = c; }
+    }
+    return best || [nx, ny];
+  };
   const onDown = e => {
     const st = e.target.getStage(); const pos = st.getPointerPosition(); if (!pos) return;
-    const nx = pos.x / stageW, ny = pos.y / stageH;
+    const [nx, ny] = snapTo(pos.x / stageW, pos.y / stageH);  // lock to the exact corner like Bluebeam
     if (mode === "calib") { setCalibPts(prev => [...prev, [nx, ny]].slice(-2)); return; }
     setDraft(prev => [...prev, [nx, ny]]);
   };
