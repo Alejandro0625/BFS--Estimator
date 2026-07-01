@@ -1540,16 +1540,16 @@ export default function BFSEstimator() {
             <div>
               <div style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"0.6rem"}}>View</div>
               <div style={{display:"flex",flexDirection:"column",gap:"0.4rem"}}>
-                {[["table","📊  Table View"],["interactive","🎨  Interactive Takeoff"],["edit","✏️  Edit Surfaces"],["pricing","💵  Pricing & Bid"]].map(([mode,label])=>(
-                  <button key={mode} onClick={()=>setViewMode(mode)} style={{padding:"0.55rem 0.75rem",borderRadius:7,fontSize:"0.72rem",fontWeight:viewMode===mode?700:400,fontFamily:"inherit",cursor:"pointer",border:"none",textAlign:"left",background:viewMode===mode?BLUE:"#F1F5F9",color:viewMode===mode?"#fff":"#64748B",transition:"all 0.15s"}}>{label}</button>
+                {[["table","Table view"],["interactive","Interactive takeoff"],["edit","Edit surfaces"],["pricing","Pricing & bid"]].map(([mode,label])=>(
+                  <button key={mode} onClick={()=>setViewMode(mode)} style={{padding:"0.6rem 0.85rem",borderRadius:9,fontSize:"0.73rem",fontWeight:viewMode===mode?600:500,fontFamily:"inherit",cursor:"pointer",border:"1px solid "+(viewMode===mode?"transparent":"#E4EAF1"),textAlign:"left",background:viewMode===mode?"linear-gradient(180deg,#5A92D2,#3F79BC)":"#fff",color:viewMode===mode?"#fff":"#475569",boxShadow:viewMode===mode?"0 6px 16px -4px rgba(74,134,200,0.5)":"0 1px 2px rgba(15,23,42,0.04)",letterSpacing:"-0.01em"}}>{label}</button>
                 ))}
               </div>
             </div>
 
             {/* Export */}
             <div style={{display:"flex",flexDirection:"column",gap:"0.4rem"}}>
-              <button onClick={exportExcel} style={{padding:"0.6rem",background:"#fff",color:BLUE,border:"1.5px solid "+BLUE,borderRadius:7,fontSize:"0.72rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>↓  Export Excel</button>
-              <button onClick={exportPDF} disabled={pdfLoading} style={{padding:"0.6rem",background:"#F8FAFC",color:pdfLoading?"#9CA3AF":"#64748B",border:"1.5px solid #E2E8F0",borderRadius:7,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:pdfLoading?"not-allowed":"pointer"}}>↓  {pdfLoading?"Generating...":"Evidence PDF"}</button>
+              <button onClick={exportExcel} style={{padding:"0.65rem",background:"linear-gradient(180deg,#5A92D2,#3F79BC)",color:"#fff",border:"none",borderRadius:9,fontSize:"0.73rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer",boxShadow:"0 6px 16px -5px rgba(74,134,200,0.55)",letterSpacing:"-0.01em"}}>↓  Export Excel</button>
+              <button onClick={exportPDF} disabled={pdfLoading} style={{padding:"0.65rem",background:"#fff",color:pdfLoading?"#9CA3AF":"#3F79BC",border:"1px solid "+(pdfLoading?"#E2E8F0":"#CFE0F2"),borderRadius:9,fontSize:"0.73rem",fontWeight:600,fontFamily:"inherit",cursor:pdfLoading?"not-allowed":"pointer",letterSpacing:"-0.01em"}}>↓  {pdfLoading?"Generating…":"Evidence PDF"}</button>
             </div>
 
             {/* Measurement basis — builds confidence in the SF */}
