@@ -334,6 +334,19 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     setGroupBusy(false);
   };
   const toggleGroup=g=>setSelGroups(prev=>{const n={...prev}; if(n[g.group]!==undefined) delete n[g.group]; else n[g.group]=""; return n;});
+  // ⚡ EXACT-ON-SELECT: turn a blocky preview group into corner-snapped exact shapes (bid-grade SF)
+  const refineGroup=async g=>{
+    setGroupBusy(true);
+    try{
+      const r=await fetch(BACKEND+"/refine-group",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page:pageNum,patches:g.patches})}).then(r=>r.json());
+      if(r.status==="ok"&&r.shapes.length){
+        r.shapes.forEach(s=>addBucketShape(s.points,s.area_sf,{gross_sf:s.gross_sf,opening_sf:s.opening_sf,openings:s.openings,openings_review:s.openings_review,material:selGroups[g.group]||""}));
+        toggleGroup(g);
+        setSnapMsg(`⚡ made exact: ${r.shapes.length} shapes · ${Math.round(r.total_sf).toLocaleString()} SF`);
+      } else setSnapMsg("Couldn't refine that group");
+    }catch(e){ setSnapMsg("Refine failed — check connection"); }
+    setGroupBusy(false);
+  };
   const setGroupMat=(gid,mat)=>setSelGroups(prev=>({...prev,[gid]:mat}));
   const selGroupList=previewGroups.filter(g=>selGroups[g.group]!==undefined);
   const selGroupSF=selGroupList.reduce((s,g)=>s+(g.approx_sf||0),0);
@@ -388,7 +401,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
             <button onClick={finishCorners} disabled={cornerPts.length<3} style={{fontSize:"0.63rem",padding:"0.25rem 0.6rem",borderRadius:5,border:"none",background:cornerPts.length<3?"#334155":"linear-gradient(180deg,#34D399,#10B981)",color:"#fff",cursor:cornerPts.length<3?"default":"pointer",fontFamily:"inherit",fontWeight:700}}>Finish</button>
             <button onClick={cancelCorners} style={{fontSize:"0.63rem",padding:"0.25rem 0.5rem",borderRadius:5,border:"1px solid #2D5280",background:NAVY_LT,color:"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
           </div>}
-          {bucketMode&&snapMsg&&<div style={{fontSize:"0.63rem",padding:"0.3rem 0.6rem",borderRadius:20,background:NAVY_LT,color:snapMsg[0]==="✓"?"#6EE7B7":"#CBD5E1",border:"1px solid #2D5280"}}>{snapMsg}</div>}
+          {(bucketMode||groupMode)&&snapMsg&&<div style={{fontSize:"0.63rem",padding:"0.3rem 0.6rem",borderRadius:20,background:NAVY_LT,color:(snapMsg[0]==="✓"||snapMsg[0]==="⚡")?"#6EE7B7":"#CBD5E1",border:"1px solid #2D5280"}}>{snapMsg}</div>}
           <button onClick={()=>{const nm=!groupMode;setGroupMode(nm);setBucketMode(false);setCalibMode(false);setCornerMode(false);if(nm&&previewGroups.length===0)loadGroups();}} style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid "+(groupMode?"#A78BFA":"#2D5280"),background:groupMode?"#3730A3":NAVY_LT,color:groupMode?"#DDD6FE":"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>🎨 {groupMode?(groupBusy?"Finding groups…":"Auto-groups — click to pick"):"Auto-groups (preview)"}</button>
           {groupMode&&!groupBusy&&<div style={{fontSize:"0.62rem",padding:"0.3rem 0.6rem",borderRadius:20,background:NAVY_LT,color:"#C4B5FD",border:"1px solid #4C1D95"}}>Preview — pick the groups you're bidding {previewGroups.length>0?`(${previewGroups.length} found)`:""}</div>}
         </div>
@@ -515,9 +528,10 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
                 <span style={{width:12,height:12,borderRadius:3,background:`rgb(${g.color.map(c=>Math.round(c*255)).join(",")})`,flexShrink:0}}/>
                 <span style={{fontSize:"0.68rem",fontWeight:700,color:"#E2E8F0",minWidth:52}}>~{Math.round(g.approx_sf).toLocaleString()}</span>
                 <input value={selGroups[g.group]} onChange={e=>setGroupMat(g.group,e.target.value)} placeholder="material…" style={{flex:1,minWidth:0,padding:"0.2rem 0.4rem",borderRadius:5,border:"1px solid #2D5280",background:NAVY_LT,color:"#E2E8F0",fontSize:"0.6rem",fontFamily:"inherit"}}/>
+                <button onClick={()=>refineGroup(g)} disabled={groupBusy} title="Snap this group to the drawing's lines → exact SF" style={{padding:"0.18rem 0.42rem",borderRadius:5,border:"none",background:groupBusy?"#334155":"linear-gradient(180deg,#FBBF24,#F59E0B)",color:"#1F2937",fontSize:"0.62rem",fontWeight:800,cursor:groupBusy?"default":"pointer",fontFamily:"inherit"}}>⚡</button>
               </div>)}
               <div style={{display:"flex",justifyContent:"space-between",padding:"0.3rem 0",fontSize:"0.68rem",color:"#C4B5FD",fontWeight:700}}><span>Preview total</span><span>~{Math.round(selGroupSF).toLocaleString()} SF</span></div>
-              <div style={{fontSize:"0.56rem",color:"#F59E0B",marginBottom:"0.35rem",lineHeight:1.4}}>⚠ Preview estimate — measure exact with 🪣 Bucket before bidding</div>
+              <div style={{fontSize:"0.56rem",color:"#F59E0B",marginBottom:"0.35rem",lineHeight:1.4}}>⚠ Preview estimate — hit ⚡ on a group to snap it to the drawing for exact SF</div>
               <button onClick={exportInteractiveExcel} style={{width:"100%",padding:"0.45rem",background:"linear-gradient(180deg,#A78BFA,#8B5CF6)",color:"#fff",border:"none",borderRadius:6,fontSize:"0.66rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>↓ Export (incl. preview)</button>
             </div>}
             {bucketShapes.length>0&&<div style={{marginTop:"0.5rem",padding:"0.6rem",background:NAVY,borderRadius:7,border:"1px solid #10B98155"}}>
