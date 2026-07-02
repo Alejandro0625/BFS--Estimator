@@ -2185,8 +2185,10 @@ export default function BFSEstimator() {
                     <div style={{fontSize:"0.82rem",color:"#64748B",lineHeight:1.7,maxWidth:520,margin:"0 auto"}}>The AI couldn't detect cladding on these pages and found no Bluebeam measurements to read. You can still measure it yourself: open the <b>Draw</b> tab, set the scale, and trace the walls — or try re-uploading just the elevation sheets.</div>
                   </div>
                 )}
-                {reviewElevs.length>0&&<div style={{fontSize:"0.72rem",letterSpacing:"0.1em",color:BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"1rem"}}>By elevation</div>}
-                {results.takeoffData.map((elev,i)=>{
+                {reviewElevs.length>0&&<div style={{fontSize:"0.72rem",letterSpacing:"0.1em",color:BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"1rem"}}>By elevation{reviewElevs.length>6?" · biggest first":""}</div>}
+                {(reviewElevs.length>6
+                  ? [...results.takeoffData].sort((a,b)=>(b.zones||[]).reduce((s,z)=>s+(z.netArea||0),0)-(a.zones||[]).reduce((s,z)=>s+(z.netArea||0),0))
+                  : results.takeoffData).map((elev,i)=>{
                   const total=(elev.zones||[]).reduce((s,z)=>s+(z.netArea||0),0);
                   if(total===0)return null;
                   const conf=elevConfidence(elev);
