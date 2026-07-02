@@ -1294,6 +1294,12 @@ export default function BFSEstimator() {
       svg polygon, svg rect, svg circle { transition: fill-opacity .18s ease, stroke-width .15s ease, stroke .18s ease; }
       svg circle[style*="grab"]:hover { stroke-width: 3px; }
       #root > div { animation: bfsFadeUp .45s cubic-bezier(.2,.8,.2,1); }
+      /* interactive cards: anything card-shaped lifts + zooms a touch under the cursor */
+      div[style*="border-radius: 12px"], div[style*="border-radius: 10px"] { transition: transform .18s cubic-bezier(.2,.8,.2,1), box-shadow .22s ease; }
+      div[style*="border-radius: 12px"]:hover, div[style*="border-radius: 10px"]:hover { transform: translateY(-2px) scale(1.012); box-shadow: 0 10px 30px -12px rgba(15,33,56,.28); }
+      /* titles zoom gently when you sweep over them */
+      h1, h2, h3 { transition: transform .2s cubic-bezier(.2,.8,.2,1); transform-origin: left center; }
+      h1:hover, h2:hover, h3:hover { transform: scale(1.022); }
       @media (prefers-reduced-motion: reduce) { *, ::after { animation: none !important; transition: none !important; } }
       input, textarea, select { transition: border-color .2s ease, box-shadow .2s ease, background .2s ease; }
       input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(74,134,200,.35); }
@@ -1516,7 +1522,7 @@ export default function BFSEstimator() {
   const showUploadScreen = !showResults;
 
   return (
-    <div style={{fontFamily:"'Inter',system-ui,-apple-system,sans-serif",background:(appTab==="takeoff"&&showUploadScreen)?"#0C1B2E":"linear-gradient(180deg,#F5F8FC 0%,#E9F0F8 100%)",minHeight:"100vh",display:"flex",flexDirection:"column",color:"#1E293B"}}>
+    <div style={{fontFamily:"'Inter',system-ui,-apple-system,sans-serif",background:(appTab==="takeoff"&&showUploadScreen)?"#0C1B2E":"radial-gradient(1100px 480px at 12% -8%, rgba(15,33,56,0.22), transparent 62%), radial-gradient(900px 420px at 88% -8%, rgba(74,134,200,0.20), transparent 60%), radial-gradient(1400px 700px at 50% 115%, rgba(90,146,210,0.10), transparent 55%), linear-gradient(180deg,#F5F8FC 0%,#E9F0F8 100%)",minHeight:"100vh",display:"flex",flexDirection:"column",color:"#1E293B"}}>
 
       {/* ── Header ── */}
       <header style={{background:"linear-gradient(180deg,#0F2138,#0B1728)",height:96,padding:"0 2.4rem",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,boxShadow:"0 1px 0 rgba(255,255,255,0.06), 0 6px 28px -8px rgba(0,0,0,0.55)",zIndex:10}}>
