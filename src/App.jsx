@@ -697,7 +697,7 @@ function EditorView({ results, BACKEND, setResults }) {
                 onDragMove={e=>updateVertex(selId, vi, e.target.x()/(pageDims.width*sc), e.target.y()/(pageDims.height*sc))}/>
             ))}
           </Layer>
-        </Stage>:<div style={{color:"#475569",fontSize:"0.8rem",marginTop:"3rem"}}>Loading elevation…</div>}
+        </Stage>:<div style={{color:"#475569",fontSize:"0.8rem",marginTop:"3rem"}}>{elevations.length?"Loading elevation…":"This takeoff found no measurable pages — nothing to edit here. Re-run the drawing in the Takeoff tab."}</div>}
       </div>
       <div style={{width:220,borderLeft:"1px solid "+NAVY_LT,padding:"1rem",background:NAVY_MID,overflowY:"auto",flexShrink:0}}>
         <div style={{display:"flex",gap:"0.35rem",marginBottom:"0.65rem"}}>
@@ -2051,7 +2051,14 @@ export default function BFSEstimator() {
                   </div>
                 )}
 
-                <div style={{fontSize:"0.72rem",letterSpacing:"0.1em",color:BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"1rem"}}>By elevation</div>
+                {reviewElevs.length===0&&(
+                  <div style={{background:"#fff",borderRadius:14,border:"1px solid #FDE68A",padding:"2.25rem 2rem",textAlign:"center",boxShadow:"0 2px 10px rgba(15,23,42,0.05)"}}>
+                    <div style={{fontSize:"2.2rem",marginBottom:"0.5rem"}}>🤔</div>
+                    <div style={{fontSize:"1.05rem",fontWeight:800,color:"#0F172A",marginBottom:"0.4rem"}}>No measurable areas found on this drawing</div>
+                    <div style={{fontSize:"0.82rem",color:"#64748B",lineHeight:1.7,maxWidth:520,margin:"0 auto"}}>The AI couldn't detect cladding on these pages and found no Bluebeam measurements to read. You can still measure it yourself: open the <b>Draw</b> tab, set the scale, and trace the walls — or try re-uploading just the elevation sheets.</div>
+                  </div>
+                )}
+                {reviewElevs.length>0&&<div style={{fontSize:"0.72rem",letterSpacing:"0.1em",color:BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"1rem"}}>By elevation</div>}
                 {results.takeoffData.map((elev,i)=>{
                   const total=(elev.zones||[]).reduce((s,z)=>s+(z.netArea||0),0);
                   if(total===0)return null;
