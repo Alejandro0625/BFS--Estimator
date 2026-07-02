@@ -882,7 +882,7 @@ function ModelView() {
       <div style={{maxWidth:860,margin:"0 auto"}}>
         <div style={{fontSize:"0.7rem",letterSpacing:"0.18em",color:BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"0.4rem"}}>The Model</div>
         <h2 style={{fontSize:"1.6rem",fontWeight:800,color:"#0F172A",margin:"0 0 0.4rem",letterSpacing:"-0.02em"}}>Trained on Boston Facade Systems' own work</h2>
-        <p style={{fontSize:"0.85rem",color:"#64748B",lineHeight:1.6,margin:"0 0 1.75rem",maxWidth:660}}>This isn't generic AI. It learns to highlight materials and trace shapes the way <i>your</i> estimators do — from every takeoff your team has ever marked up. The more bids you run, the sharper it gets. No competitor can copy this — it's your data.</p>
+        <p style={{fontSize:"0.85rem",color:"#9FB3CC",lineHeight:1.6,margin:"0 0 1.75rem",maxWidth:660}}>This isn't generic AI. It learns to highlight materials and trace shapes the way <i>your</i> estimators do — from every takeoff your team has ever marked up. The more bids you run, the sharper it gets. No competitor can copy this — it's your data.</p>
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"0.75rem",marginBottom:"1.75rem"}}>
           {[["657","marked takeoffs"],["16,368","labeled regions"],["2024–26","3 years"],["12","material types"]].map(([n,l])=>(
             <div key={l} style={{padding:"1rem",background:"#fff",borderRadius:12,border:"1px solid #EEF2F7",textAlign:"center"}}>
@@ -1297,7 +1297,8 @@ export default function BFSEstimator() {
       /* interactive cards: anything card-shaped lifts + zooms a touch under the cursor */
       div[style*="border-radius: 12px"], div[style*="border-radius: 10px"] { transition: transform .18s cubic-bezier(.2,.8,.2,1), box-shadow .22s ease; }
       div[style*="border-radius: 12px"]:hover, div[style*="border-radius: 10px"]:hover { transform: translateY(-2px) scale(1.012); box-shadow: 0 10px 30px -12px rgba(15,33,56,.28); }
-      /* titles zoom gently when you sweep over them */
+      /* titles zoom gently when you sweep over them; page titles read light on the navy backdrop */
+      h1, h2 { color: #F1F5F9 !important; }
       h1, h2, h3 { transition: transform .2s cubic-bezier(.2,.8,.2,1); transform-origin: left center; }
       h1:hover, h2:hover, h3:hover { transform: scale(1.022); }
       @media (prefers-reduced-motion: reduce) { *, ::after { animation: none !important; transition: none !important; } }
@@ -1522,7 +1523,7 @@ export default function BFSEstimator() {
   const showUploadScreen = !showResults;
 
   return (
-    <div style={{fontFamily:"'Inter',system-ui,-apple-system,sans-serif",background:(appTab==="takeoff"&&showUploadScreen)?"#0C1B2E":"radial-gradient(1100px 480px at 12% -8%, rgba(15,33,56,0.22), transparent 62%), radial-gradient(900px 420px at 88% -8%, rgba(74,134,200,0.20), transparent 60%), radial-gradient(1400px 700px at 50% 115%, rgba(90,146,210,0.10), transparent 55%), linear-gradient(180deg,#F5F8FC 0%,#E9F0F8 100%)",minHeight:"100vh",display:"flex",flexDirection:"column",color:"#1E293B"}}>
+    <div style={{fontFamily:"'Inter',system-ui,-apple-system,sans-serif",background:"radial-gradient(1100px 520px at 15% -10%, rgba(74,134,200,0.16), transparent 60%), radial-gradient(900px 460px at 85% -8%, rgba(90,146,210,0.13), transparent 58%), radial-gradient(1500px 800px at 50% 118%, rgba(63,121,188,0.10), transparent 55%), #0C1B2E",minHeight:"100vh",display:"flex",flexDirection:"column",color:"#1E293B"}}>
 
       {/* ── Header ── */}
       <header style={{background:"linear-gradient(180deg,#0F2138,#0B1728)",height:96,padding:"0 2.4rem",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,boxShadow:"0 1px 0 rgba(255,255,255,0.06), 0 6px 28px -8px rgba(0,0,0,0.55)",zIndex:10}}>
@@ -1559,7 +1560,7 @@ export default function BFSEstimator() {
           <div style={{maxWidth:840,margin:"0 auto"}}>
             <div style={{fontSize:"0.7rem",letterSpacing:"0.18em",color:BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"0.3rem"}}>Budget</div>
             <h2 style={{fontSize:"1.5rem",fontWeight:800,color:"#0F172A",margin:"0 0 0.3rem",letterSpacing:"-0.02em"}}>Price the bid — no Excel needed</h2>
-            <p style={{fontSize:"0.82rem",color:"#64748B",margin:"0 0 1.5rem",lineHeight:1.6}}>Your takeoff SF × the rates you set for <i>this</i> job (you don't always charge the same). Edit a rate and the total updates live. Export writes your BFS estimate sheet automatically.</p>
+            <p style={{fontSize:"0.82rem",color:"#9FB3CC",margin:"0 0 1.5rem",lineHeight:1.6}}>Your takeoff SF × the rates you set for <i>this</i> job (you don't always charge the same). Edit a rate and the total updates live. Export writes your BFS estimate sheet automatically.</p>
             {(!results||!priceRows.length)?(
               <div style={{padding:"2.5rem",textAlign:"center",color:"#94A3B8",background:"#fff",borderRadius:12,border:"1px solid #EEF2F7",fontSize:"0.85rem"}}>Run a takeoff and tag your materials first — then set your prices here.</div>
             ):(<>
