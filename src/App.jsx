@@ -301,8 +301,8 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     setSnapBusy(true); setSnapMsg("Filling…");
     try{
       const r=await fetch(BACKEND+"/snap-fill",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page:pageNum,point:[p.x,p.y]})}).then(r=>r.json());
-      if(r.status==="ok"){ addBucketShape(r.points,r.area_sf); setSnapMsg(`✓ ${Math.round(r.area_sf).toLocaleString()} SF`); }
-      else if(r.status==="leak"){ setCornerMode(true); setCornerPts([]); setSnapMsg("Open field — click each corner, then Finish"); }
+      if(r.status==="ok"){ addBucketShape(r.points,r.area_sf,{holes:r.holes||[]}); setSnapMsg(`✓ ${Math.round(r.area_sf).toLocaleString()} SF${(r.holes||[]).length?" net (openings shown cut out)":""}`); }
+      else if(r.status==="leak"){ setCornerMode(true); setCornerPts([]); setSnapMsg("Open field — click each corner (peaks too), then Finish"); }
       else setSnapMsg("Couldn't fill there — try clicking the corners");
     }catch(e){ setSnapMsg("Snap failed — check connection"); }
     setSnapBusy(false);
@@ -416,6 +416,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
               {calibPts.map((p,i)=><circle key={"cp"+i} cx={p.x*pageDims.width} cy={p.y*pageDims.height} r={pageDims.width/110} fill="#EF4444" stroke="#fff" strokeWidth={pageDims.width/600}/>)}
               {pageBucketShapes.map(s=>{const cx=s.points.reduce((a,p)=>a+p[0],0)/s.points.length*pageDims.width,cy=s.points.reduce((a,p)=>a+p[1],0)/s.points.length*pageDims.height;const warn=s.openings_review;return <g key={"bk"+s.id}>
                 <polygon points={toSVGPoints(s.points)} fill={warn?"#F59E0B":"#10B981"} fillOpacity={0.30} stroke={warn?"#F59E0B":"#10B981"} strokeWidth={2}/>
+                {(s.holes||[]).map((hp,i)=><polygon key={"h"+i} points={toSVGPoints(hp)} fill="#FFFFFF" fillOpacity={0.75} stroke="#64748B" strokeWidth={1.2} strokeDasharray={pageDims.width/260}/>)}
                 {(s.openings||[]).map((op,i)=>{const ox=op.reduce((a,p)=>a+p[0],0)/op.length*pageDims.width,oy=op.reduce((a,p)=>a+p[1],0)/op.length*pageDims.height;return <g key={i} onClick={e=>{e.stopPropagation();vetoOpening(s.id,i);}} style={{cursor:"pointer"}}>
                   <polygon points={toSVGPoints(op)} fill="#EF4444" fillOpacity={0.18} stroke="#EF4444" strokeWidth={1.6} strokeDasharray={pageDims.width/220}/>
                   <circle cx={ox} cy={oy} r={pageDims.width/140} fill="#EF4444"/><text x={ox} y={oy+pageDims.width/400} textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={pageDims.width/110} fontFamily="Inter,Arial" fontWeight="bold">✕</text>
@@ -1330,6 +1331,7 @@ export default function BFSEstimator() {
     const warns=[];
     if(defaultScaleN>0) warns.push("• "+defaultScaleN+" page(s) used a DEFAULT scale (couldn't read it) — SF could be far off. Open the elevation and Calibrate first.");
     if(labelWarnN>0) warns.push("• "+labelWarnN+" page(s) have a markup label that looks like a typo (flagged in review).");
+    if(missWarnN>0) warns.push("• "+missWarnN+" elevation(s) look UNDER-marked vs the building face — a wall may be missing from the takeoff.");
     return warns.length===0 || window.confirm("⚠ CHECK BEFORE BIDDING\n\n"+warns.join("\n")+"\n\nExport anyway?");
   };
   const exportExcel=()=>{
@@ -1387,18 +1389,21 @@ export default function BFSEstimator() {
   },{});
   const hasReviewed = Object.keys(reviewedSummary).length>0;
   const pricingSource = hasReviewed ? reviewedSummary : (summaryData||{});
+  const wasteOf = cat => (pricing.wastePerMat && pricing.wastePerMat[cat]!=null) ? pricing.wastePerMat[cat] : pricing.wastePct;  // waste differs by material (lap ~10, shake ~15+, cut panels less)
+  const setWasteMat = (cat,v)=>setPricing(p=>({...p,wastePerMat:{...(p.wastePerMat||{}),[cat]:v}}));
   const priceRows = Object.entries(pricingSource).map(([cat,{net:net0}])=>{
     const net = (pricing.sfOverride && pricing.sfOverride[cat]!=null) ? pricing.sfOverride[cat] : net0;  // editable per job
     const rate = pricing.rates[cat]!=null ? pricing.rates[cat] : (DEFAULT_RATES[cat]??DEFAULT_RATES.Other);
-    const adjSF = net*(1+pricing.wastePct/100);
-    return { cat, net, adjSF, rate, cost:adjSF*rate };
+    const wastePct = wasteOf(cat);
+    const adjSF = net*(1+wastePct/100);
+    return { cat, net, adjSF, rate, wastePct, cost:adjSF*rate };
   });
   const costSubtotal = priceRows.reduce((s,r)=>s+r.cost,0);
   const bidTotal = costSubtotal*(1+pricing.marginPct/100);
   const exportPricedExcel=()=>{
     if(!priceRows.length)return;
     if(!moneyGuard())return;
-    const mats=priceRows.map(r=>({name:r.cat,sf:r.net,rate:r.rate}));
+    const mats=priceRows.map(r=>({name:r.cat,sf:r.net*(1+r.wastePct/100)/(1+pricing.wastePct/100),rate:r.rate}));  // per-material waste
     const wb=buildExcel(results.projName||"Project",mats,{wastePct:pricing.wastePct,marginPct:pricing.marginPct});
     XLSX.writeFile(wb,"BFS_Bid_"+(results.projName||"Project").replace(/\s+/g,"_")+".xlsx");
   };
@@ -1407,6 +1412,8 @@ export default function BFSEstimator() {
   const defaultScaleN = reviewElevs.filter(e=>e.scaleSource==="default" || (!e.verifiedScale && !e.scale)).length;
   const scaleWarnN = reviewElevs.filter(e=>e.expectedFacadeSF && (e.zones||[]).reduce((s,z)=>s+(z.netArea||0),0) > e.expectedFacadeSF*1.4).length;
   const labelWarnN = reviewElevs.filter(e=>(e.flags||[]).some(f=>/implies ≈/.test(f))).length;  // typo'd markup labels caught by the backend
+  // UNDER-marking guard — the catastrophic direction (missed wall = missing SF = under-bid)
+  const missWarnN = reviewElevs.filter(e=>e.expectedFacadeSF && (e.zones||[]).reduce((s,z)=>s+(z.netArea||0),0) < e.expectedFacadeSF*0.5).length;
   const hasSchedule = !!(results?.scheduleData?.total_opening_sf>0);
   const reviewOk = reviewElevs.length>0 && defaultScaleN===0 && scaleWarnN===0 && labelWarnN===0;
   // Estimator's LINEAR (LF) measurements — trim/soffit/fascia captured from polyline markups
@@ -1429,7 +1436,7 @@ export default function BFSEstimator() {
     if(!results) return;
     if(!moneyGuard())return;
     const w=1+(pricing.wastePct||0)/100;   // buildExcel applies waste to every qty; pre-divide LF/custom so only material SF gets waste
-    const mats=[...priceRows.map(r=>({name:r.cat,sf:r.net,rate:r.rate})),
+    const mats=[...priceRows.map(r=>({name:r.cat,sf:r.net*(1+r.wastePct/100)/w,rate:r.rate})),   // per-material waste (pre-scaled: buildExcel re-applies the global %)
                 ...lfRows.map(r=>({name:r.material+" (per LF)",sf:(r.lf||0)/w,rate:r.rate})),
                 ...customLines.filter(l=>(l.name||l.rate)).map(l=>({name:l.name||"Line item",sf:(l.qty||0)/w,rate:l.rate||0}))];
     const wb=buildExcel(results.projName||"Project",mats,{wastePct:pricing.wastePct,marginPct:pricing.marginPct});
@@ -1439,10 +1446,10 @@ export default function BFSEstimator() {
   const persistRateCards=rc=>{ setRateCards(rc); try{ localStorage.setItem("bfs_rate_cards",JSON.stringify(rc)); }catch{} };
   const saveRateCard=()=>{
     const nm=((rateCardName||results?.projName||"My rates").trim()).slice(0,32)||"My rates";
-    persistRateCards({...rateCards,[nm]:{ rates:{...pricing.rates}, wastePct:pricing.wastePct, marginPct:pricing.marginPct, lfRates:{...(pricing.lfRates||{})}, savedAt:Date.now() }});
+    persistRateCards({...rateCards,[nm]:{ rates:{...pricing.rates}, wastePct:pricing.wastePct, marginPct:pricing.marginPct, lfRates:{...(pricing.lfRates||{})}, wastePerMat:{...(pricing.wastePerMat||{})}, savedAt:Date.now() }});
     setRateCardName(nm);
   };
-  const loadRateCard=nm=>{ const c=rateCards[nm]; if(!c)return; setPricing(p=>({...p, rates:{...c.rates}, wastePct:c.wastePct, marginPct:c.marginPct, lfRates:{...(c.lfRates||{})} })); setRateCardName(nm); };
+  const loadRateCard=nm=>{ const c=rateCards[nm]; if(!c)return; setPricing(p=>({...p, rates:{...c.rates}, wastePct:c.wastePct, marginPct:c.marginPct, lfRates:{...(c.lfRates||{})}, wastePerMat:{...(c.wastePerMat||{})} })); setRateCardName(nm); };
   const deleteRateCard=nm=>{ const rc={...rateCards}; delete rc[nm]; persistRateCards(rc); if(rateCardName===nm)setRateCardName(""); };
   const linearTotalLF = linearRollup.reduce((s,r)=>s+r.lf,0);
   const triage = reviewElevs.map(e=>({ ...elevConfidence(e) }));
@@ -1520,7 +1527,7 @@ export default function BFSEstimator() {
                   <div key={r.cat} style={{display:"grid",gridTemplateColumns:"1.7fr 0.9fr 0.9fr 1fr 1fr",padding:"0.5rem 1rem",borderTop:"1px solid #F1F5F9",alignItems:"center",fontSize:"0.76rem"}}>
                     <div style={{fontWeight:600,color:"#0F172A"}}>{r.cat}</div>
                     <div style={{textAlign:"right"}}><input type="number" value={Math.round(r.net)} onChange={e=>setSf(r.cat,parseFloat(e.target.value)||0)} style={{width:64,textAlign:"right",padding:"0.22rem 0.35rem",borderRadius:5,border:"1px solid #E2E8F0",fontSize:"0.74rem",fontFamily:"inherit",color:"#334155"}}/></div>
-                    <div style={{textAlign:"right",color:"#94A3B8"}}>{Math.round(r.adjSF).toLocaleString()}</div>
+                    <div style={{textAlign:"right",whiteSpace:"nowrap"}}><input type="number" value={r.wastePct} onChange={e=>setWasteMat(r.cat,parseFloat(e.target.value)||0)} title="waste % for this material" style={{width:36,textAlign:"right",padding:"0.22rem 0.25rem",borderRadius:5,border:"1px solid #E2E8F0",fontSize:"0.7rem",fontFamily:"inherit",color:"#64748B"}}/><span style={{fontSize:"0.6rem",color:"#94A3B8"}}>% → </span><span style={{color:"#94A3B8"}}>{Math.round(r.adjSF).toLocaleString()}</span></div>
                     <div style={{textAlign:"right",whiteSpace:"nowrap"}}><span style={{color:"#94A3B8"}}>$</span><input type="number" value={r.rate} onChange={e=>setRate(r.cat,parseFloat(e.target.value)||0)} style={{width:60,textAlign:"right",padding:"0.22rem 0.35rem",borderRadius:5,border:"1px solid #CBD5E1",fontSize:"0.74rem",fontFamily:"inherit"}}/></div>
                     <div style={{textAlign:"right",fontWeight:700,color:"#0F172A"}}>${Math.round(r.cost).toLocaleString()}</div>
                   </div>
