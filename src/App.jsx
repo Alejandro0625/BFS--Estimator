@@ -815,7 +815,7 @@ function ModelView() {
         <h2 style={{fontSize:"1.6rem",fontWeight:800,color:"#0F172A",margin:"0 0 0.4rem",letterSpacing:"-0.02em"}}>Trained on Boston Facade Systems' own work</h2>
         <p style={{fontSize:"0.85rem",color:"#64748B",lineHeight:1.6,margin:"0 0 1.75rem",maxWidth:660}}>This isn't generic AI. It learns to highlight materials and trace shapes the way <i>your</i> estimators do — from every takeoff your team has ever marked up. The more bids you run, the sharper it gets. No competitor can copy this — it's your data.</p>
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"0.75rem",marginBottom:"1.75rem"}}>
-          {[["14,349","expert-labeled regions"],["90","jobs"],["2024–26","3 years"],["11","material types"]].map(([n,l])=>(
+          {[["657","marked takeoffs"],["16,368","labeled regions"],["2024–26","3 years"],["12","material types"]].map(([n,l])=>(
             <div key={l} style={{padding:"1rem",background:"#fff",borderRadius:12,border:"1px solid #EEF2F7",textAlign:"center"}}>
               <div style={{fontSize:"1.55rem",fontWeight:800,color:BLUE}}>{n}</div>
               <div style={{fontSize:"0.6rem",color:"#94A3B8",marginTop:2}}>{l}</div>
@@ -835,9 +835,21 @@ function ModelView() {
           ))}
         </div>
         <div style={{background:NAVY,borderRadius:12,padding:"1.1rem 1.25rem",color:"#fff",marginBottom:"1.5rem"}}>
-          <div style={{fontSize:"0.6rem",letterSpacing:"0.1em",color:"rgba(255,255,255,0.5)",textTransform:"uppercase",fontWeight:700,marginBottom:"0.5rem"}}>Model status</div>
-          <div style={{fontSize:"0.95rem",fontWeight:700}}>🟢 v1 training on GPU — learning to trace shapes like your estimators</div>
-          <div style={{fontSize:"0.7rem",color:"rgba(255,255,255,0.6)",marginTop:"0.45rem",lineHeight:1.5}}>Accuracy per material appears here once training completes — then every new bid you run feeds it and pushes accuracy higher.</div>
+          <div style={{fontSize:"0.6rem",letterSpacing:"0.1em",color:"rgba(255,255,255,0.5)",textTransform:"uppercase",fontWeight:700,marginBottom:"0.5rem"}}>Model status — measured honestly</div>
+          <div style={{fontSize:"0.95rem",fontWeight:700}}>🟢 v10 training — job-split, scale-augmented</div>
+          <div style={{fontSize:"0.68rem",color:"rgba(255,255,255,0.55)",marginTop:"0.4rem",lineHeight:1.5}}>Every number below is measured on jobs the model has <i>never seen</i> (split by job — no leakage). The honest read, not a demo score.</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"0.6rem",marginTop:"0.9rem"}}>
+            {[["0.62","cladding-detection IoU","on drawings like ones it's trained on"],["~32%","found on a blank sheet","climbs with every job you add"],["Exact","your bid SF","from geometry + your confirm — never a guess"]].map(([n,t,d])=>(
+              <div key={t} style={{background:"rgba(255,255,255,0.06)",borderRadius:8,padding:"0.7rem 0.75rem"}}>
+                <div style={{fontSize:"1.25rem",fontWeight:800,color:"#7FB0E0"}}>{n}</div>
+                <div style={{fontSize:"0.64rem",fontWeight:700,color:"rgba(255,255,255,0.85)",marginTop:2}}>{t}</div>
+                <div style={{fontSize:"0.58rem",color:"rgba(255,255,255,0.45)",marginTop:2,lineHeight:1.35}}>{d}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{fontSize:"0.64rem",color:"rgba(255,255,255,0.6)",marginTop:"0.85rem",lineHeight:1.5,borderTop:"1px solid rgba(255,255,255,0.08)",paddingTop:"0.7rem"}}>
+            <b style={{color:"#93C5FD"}}>How to read this:</b> the model's job is to <i>find + pre-mark</i> the cladding so the estimator selects instead of tracing. The <b>bid SF stays exact</b> because she confirms each group and the number comes from the drawing's own geometry. Naming metal-vs-lap across different architects isn't reliable from the drawing (it lives in the legend) — so she names the material in one click, and the model gets sharper on <i>your</i> recurring jobs every cycle.
+          </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"0.75rem"}}>
           {[["📐","Run a bid","Estimator marks the takeoff like always"],["🧠","It learns","Every shape becomes a new training example"],["⚡","Gets sharper","Next similar drawing, it does more for you"]].map(([ic,t,d])=>(
