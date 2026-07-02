@@ -580,7 +580,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
 }
 
 /* ── Konva polygon editor: drag vertices to correct the AI, live SF ── */
-function EditorView({ results, BACKEND }) {
+function EditorView({ results, BACKEND, setResults }) {
   const elevations = results.takeoffData.filter(e=>e.pageNumber);
   const [elevIdx,setElevIdx]=useState(0);
   const elev=elevations[elevIdx];
@@ -590,11 +590,13 @@ function EditorView({ results, BACKEND }) {
   const [img,setImg]=useState(null);
   const [selId,setSelId]=useState(null);
   const [stageW,setStageW]=useState(800);
+  const [mode,setMode]=useState("select");   // "select" | "cut" — cut = draw a window/door the AI missed, gets subtracted
+  const [draft,setDraft]=useState([]);
   const wrapRef=useRef();
 
   useEffect(()=>{
     if(!pageNum||!results.jobId) return;
-    setPolys([]); setSelId(null); setImg(null);
+    setPolys([]); setSelId(null); setImg(null); setDraft([]); setMode("select");
     fetch(BACKEND+"/polygons/"+results.jobId+"/"+pageNum).then(r=>r.ok?r.json():{polygons:[]}).then(d=>{
       if(d.width) setPageDims({width:d.width,height:d.height||792});
       setPolys((d.polygons||[]).map((p,i)=>({id:i,points:p.points||[],category:p.material_type||p.category||"Other",area_sf:p.area_sf||0})));
@@ -613,9 +615,59 @@ function EditorView({ results, BACKEND }) {
   const stageH = pageDims.height*sc;
   const effFt = (()=>{ for(const p of polys){ if(p.area_sf>0&&p.points.length>=3){ const sh=polyAreaSF(p.points,72,pageDims.width,pageDims.height); if(sh>0) return 72*Math.sqrt(p.area_sf/sh);}} return 8; })();
   const areaOf=p=>polyAreaSF(p.points,effFt,pageDims.width,pageDims.height);
-  const totalSF=polys.reduce((s,p)=>s+areaOf(p),0);
+  const totalSF=polys.reduce((s,p)=>s+(p.type==="cut"?-areaOf(p):areaOf(p)),0);
   const updateVertex=(pid,vi,nx,ny)=>setPolys(prev=>prev.map(p=>p.id!==pid?p:{...p,points:p.points.map((pt,i)=>i===vi?[nx,ny]:pt)}));
-  const deletePoly=pid=>{ setPolys(prev=>prev.filter(p=>p.id!==pid)); setSelId(null); };
+  const deletePoly=pid=>{
+    const p=polys.find(x=>x.id===pid);
+    if(p&&p.type==="cut"&&p.applied&&setResults){   // undoing an applied cut-out puts its SF back
+      const sf=areaOf(p);
+      const host=polys.find(q=>q.type!=="cut"&&p.points[0]&&pip(p.points[0],q.points));
+      const hostCat=host?host.category:null;
+      setResults(prev=>({...prev,takeoffData:prev.takeoffData.map(e=>{
+        if(e.pageNumber!==pageNum) return e;
+        const zones=(e.zones||[]).map(z=>({...z}));
+        let z=hostCat?zones.find(zz=>zz.category===hostCat||zz.materialName===hostCat):null;
+        if(!z&&zones.length) z=zones.reduce((a,b)=>(a.netArea||0)>=(b.netArea||0)?a:b);
+        if(z){ z.netArea=(z.netArea||0)+sf; z.totalOpeningArea=Math.max(0,(z.totalOpeningArea||0)-sf); }
+        return {...e,zones};
+      })}));
+    }
+    setPolys(prev=>prev.filter(x=>x.id!==pid)); setSelId(null);
+  };
+  const finishCut=()=>{
+    if(draft.length<3) return;
+    setPolys(prev=>[...prev,{id:Date.now(),points:draft,category:"Cut-out (opening)",area_sf:0,type:"cut"}]);
+    setDraft([]);
+  };
+  // ray-cast point-in-polygon on normalized coords — finds which surface a cut-out sits inside
+  const pip=(pt,poly)=>{
+    let inside=false;
+    for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+      const [xi,yi]=poly[i],[xj,yj]=poly[j];
+      if(((yi>pt[1])!==(yj>pt[1]))&&(pt[0]<(xj-xi)*(pt[1]-yi)/(yj-yi)+xi)) inside=true;
+    }
+    return inside;
+  };
+  const pendingCuts=polys.filter(p=>p.type==="cut"&&!p.applied);
+  // Subtract the drawn cut-outs from this elevation's REAL takeoff numbers (summary, pricing, Excel all follow)
+  const applyCuts=()=>{
+    if(!pendingCuts.length||!setResults) return;
+    const cuts=pendingCuts.map(c=>{
+      const host=polys.find(p=>p.type!=="cut"&&c.points[0]&&pip(c.points[0],p.points));
+      return {sf:areaOf(c), hostCat:host?host.category:null};
+    });
+    setResults(prev=>({...prev,takeoffData:prev.takeoffData.map(e=>{
+      if(e.pageNumber!==pageNum) return e;
+      const zones=(e.zones||[]).map(z=>({...z}));
+      cuts.forEach(({sf,hostCat})=>{
+        let z=hostCat?zones.find(zz=>zz.category===hostCat||zz.materialName===hostCat):null;
+        if(!z&&zones.length) z=zones.reduce((a,b)=>(a.netArea||0)>=(b.netArea||0)?a:b);   // fall back to the biggest surface on the sheet
+        if(z){ z.netArea=Math.max(0,(z.netArea||0)-sf); z.totalOpeningArea=(z.totalOpeningArea||0)+sf; }
+      });
+      return {...e,zones};
+    })}));
+    setPolys(prev=>prev.map(p=>p.type==="cut"&&!p.applied?{...p,applied:true}:p));
+  };
 
   return (
     <div style={{display:"flex",height:"100%",overflow:"hidden",background:NAVY,fontFamily:"'Inter','Segoe UI',sans-serif"}}>
@@ -624,16 +676,22 @@ function EditorView({ results, BACKEND }) {
         {elevations.map((e,i)=><div key={i} onClick={()=>setElevIdx(i)} style={{padding:"0.6rem 0.8rem",cursor:"pointer",borderBottom:"1px solid "+NAVY_LT,background:i===elevIdx?NAVY_LT:"transparent",fontSize:"0.7rem",color:i===elevIdx?"#E2E8F0":"#94A3B8",borderLeft:i===elevIdx?"3px solid "+BLUE:"3px solid transparent"}}>{e.title||"Page "+e.pageNumber}</div>)}
       </div>
       <div ref={wrapRef} style={{flex:1,overflow:"auto",padding:"1rem"}}>
-        <div style={{fontSize:"0.62rem",color:"#94A3B8",marginBottom:"0.5rem"}}>Click a shape to select · drag its dots to correct it · SF updates live</div>
-        {img?<Stage width={stageW} height={stageH} onMouseDown={e=>{ if(e.target===e.target.getStage()) setSelId(null); }}>
+        <div style={{fontSize:"0.62rem",color:"#94A3B8",marginBottom:"0.5rem"}}>{mode==="cut"?"Cut-out mode: click around the window/door the AI missed, then Finish — it subtracts from the SF.":"Click a shape to select · drag its dots to correct it · SF updates live"}</div>
+        {img?<Stage width={stageW} height={stageH} onMouseDown={e=>{
+            if(mode==="cut"){ const pos=e.target.getStage().getPointerPosition(); if(pos) setDraft(prev=>[...prev,[pos.x/(pageDims.width*sc),pos.y/(pageDims.height*sc)]]); return; }
+            if(e.target===e.target.getStage()) setSelId(null);
+          }}>
           <Layer>
             <KImage image={img} width={stageW} height={stageH}/>
             {polys.map(p=>{
               const flat=p.points.flatMap(([nx,ny])=>[nx*pageDims.width*sc, ny*pageDims.height*sc]);
-              const col=CLUSTER_COLORS[p.id%CLUSTER_COLORS.length];
+              const isCut=p.type==="cut";
+              const col=isCut?"#EF4444":CLUSTER_COLORS[p.id%CLUSTER_COLORS.length];
               const sel=selId===p.id;
-              return <Line key={p.id} points={flat} closed fill={col+(sel?"66":"33")} stroke={sel?"#ffffff":col} strokeWidth={sel?2:1} onClick={()=>setSelId(p.id)} onTap={()=>setSelId(p.id)}/>;
+              return <Line key={p.id} points={flat} closed fill={col+(isCut?(p.applied?"22":"44"):sel?"66":"33")} stroke={sel?"#ffffff":col} strokeWidth={sel?2:isCut?1.5:1} dash={isCut?[7,4]:undefined} onClick={()=>setSelId(p.id)} onTap={()=>setSelId(p.id)}/>;
             })}
+            {draft.length>0&&<Line points={draft.flatMap(([nx,ny])=>[nx*pageDims.width*sc,ny*pageDims.height*sc])} stroke="#F59E0B" strokeWidth={2} dash={[6,4]}/>}
+            {draft.map(([nx,ny],i)=><Circle key={"d"+i} x={nx*pageDims.width*sc} y={ny*pageDims.height*sc} radius={4} fill="#F59E0B"/>)}
             {selId!==null&&(polys.find(p=>p.id===selId)?.points||[]).map(([nx,ny],vi)=>(
               <Circle key={vi} x={nx*pageDims.width*sc} y={ny*pageDims.height*sc} radius={5} fill="#ffffff" stroke="#3B82F6" strokeWidth={2} draggable
                 onDragMove={e=>updateVertex(selId, vi, e.target.x()/(pageDims.width*sc), e.target.y()/(pageDims.height*sc))}/>
@@ -642,13 +700,24 @@ function EditorView({ results, BACKEND }) {
         </Stage>:<div style={{color:"#475569",fontSize:"0.8rem",marginTop:"3rem"}}>Loading elevation…</div>}
       </div>
       <div style={{width:220,borderLeft:"1px solid "+NAVY_LT,padding:"1rem",background:NAVY_MID,overflowY:"auto",flexShrink:0}}>
+        <div style={{display:"flex",gap:"0.35rem",marginBottom:"0.65rem"}}>
+          {[["select","Select / edit"],["cut","– Cut-out"]].map(([m,label])=>(
+            <button key={m} onClick={()=>{setMode(m);setDraft([]);setSelId(null);}} style={{flex:1,padding:"0.5rem",borderRadius:7,border:"1px solid "+(mode===m?"transparent":NAVY_LT),background:mode===m?(m==="cut"?"linear-gradient(180deg,#EF4444,#C0392B)":"linear-gradient(180deg,#5A92D2,#3F79BC)"):"transparent",color:mode===m?"#fff":"#94A3B8",fontSize:"0.64rem",fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{label}</button>
+          ))}
+        </div>
+        {mode==="cut"&&draft.length>0&&<div style={{display:"flex",gap:"0.35rem",marginBottom:"0.65rem"}}>
+          <button onClick={finishCut} style={{flex:1,padding:"0.55rem",background:"linear-gradient(180deg,#22A860,#16874B)",border:"none",borderRadius:7,color:"#fff",fontSize:"0.66rem",fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✓ Finish cut-out ({draft.length} pts)</button>
+          <button onClick={()=>setDraft([])} style={{padding:"0.55rem 0.7rem",background:"transparent",border:"1px solid "+NAVY_LT,borderRadius:7,color:"#94A3B8",fontSize:"0.66rem",fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+        </div>}
+        {pendingCuts.length>0&&<button onClick={applyCuts} style={{width:"100%",padding:"0.6rem",marginBottom:"0.65rem",background:"linear-gradient(180deg,#F59E0B,#D97706)",border:"none",borderRadius:8,color:"#fff",fontSize:"0.68rem",fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Apply {pendingCuts.length} cut-out{pendingCuts.length!==1?"s":""} to the takeoff (−{Math.round(pendingCuts.reduce((s,c)=>s+areaOf(c),0)).toLocaleString()} SF)</button>}
         <div style={{fontSize:"0.6rem",letterSpacing:"0.12em",color:"#64748B",textTransform:"uppercase",fontWeight:700,marginBottom:"0.5rem"}}>Surfaces ({polys.length})</div>
         {polys.map(p=>{
           const sel=selId===p.id;
-          return <div key={p.id} onClick={()=>setSelId(p.id)} style={{padding:"0.5rem 0.65rem",marginBottom:"0.35rem",background:sel?NAVY_LT:NAVY,borderRadius:6,cursor:"pointer",borderLeft:"3px solid "+CLUSTER_COLORS[p.id%CLUSTER_COLORS.length]}}>
+          const isCut=p.type==="cut";
+          return <div key={p.id} onClick={()=>setSelId(p.id)} style={{padding:"0.5rem 0.65rem",marginBottom:"0.35rem",background:sel?NAVY_LT:NAVY,borderRadius:6,cursor:"pointer",borderLeft:"3px solid "+(isCut?"#EF4444":CLUSTER_COLORS[p.id%CLUSTER_COLORS.length])}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <span style={{fontSize:"0.65rem",color:"#CBD5E1"}}>{p.category}</span>
-              <span style={{fontSize:"0.72rem",fontWeight:700,color:"#E2E8F0"}}>{Math.round(areaOf(p)).toLocaleString()} SF</span>
+              <span style={{fontSize:"0.65rem",color:isCut?"#FCA5A5":"#CBD5E1"}}>{p.category}{isCut&&p.applied?" ✓":""}</span>
+              <span style={{fontSize:"0.72rem",fontWeight:700,color:isCut?"#F87171":"#E2E8F0"}}>{isCut?"−":""}{Math.round(areaOf(p)).toLocaleString()} SF</span>
             </div>
             {sel&&<div onClick={ev=>{ev.stopPropagation();deletePoly(p.id);}} style={{marginTop:"0.4rem",fontSize:"0.6rem",color:"#F87171",textAlign:"center",border:"1px solid #7F1D1D",borderRadius:5,padding:"0.3rem",cursor:"pointer"}}>Delete surface</div>}
           </div>;
@@ -1941,7 +2010,7 @@ export default function BFSEstimator() {
               <div style={{flex:1,overflow:"hidden"}}><InteractiveView results={results} BACKEND={BACKEND} assignments={assignments} setAssignments={setAssignments} groupRename={groupRename} setGroupRename={setGroupRename}/></div>
             )}
             {viewMode==="edit"&&(
-              <div style={{flex:1,overflow:"hidden"}}><EditorView results={results} BACKEND={BACKEND}/></div>
+              <div style={{flex:1,overflow:"hidden"}}><EditorView results={results} BACKEND={BACKEND} setResults={setResults}/></div>
             )}
             {viewMode==="table"&&(
               <div style={{flex:1,overflowY:"auto",padding:"2rem"}}>
