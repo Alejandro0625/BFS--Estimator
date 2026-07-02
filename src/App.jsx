@@ -160,6 +160,11 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   const [bucketShapes, setBucketShapes] = useState([]);  // each: {id,page,points,area_sf,material}
   const [snapMsg, setSnapMsg] = useState("");
   const [snapBusy, setSnapBusy] = useState(false);
+  // Material-group PREVIEW — AI suggests groups (may be imperfect); estimator SELECTS the ones she's bidding.
+  const [groupMode, setGroupMode] = useState(false);
+  const [previewGroups, setPreviewGroups] = useState([]);
+  const [selGroups, setSelGroups] = useState({});   // { group_id: materialName }
+  const [groupBusy, setGroupBusy] = useState(false);
   const imgRef = useRef();
   const svgRef = useRef();
   const elevations = results.takeoffData.filter(e => e.pageNumber);
@@ -169,6 +174,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   useEffect(() => {
     if (!pageNum || !results.jobId) return;
     setPageImage(null); setImgLoaded(false); setPagePolygons([]); setActiveGroup(null); setCalibMode(false); setCalibPts([]);
+    setGroupMode(false); setPreviewGroups([]); setSelGroups({}); setBucketMode(false); setCornerMode(false);
     fetch(BACKEND+"/polygons/"+results.jobId+"/"+pageNum)
       .then(r=>r.ok?r.json():{polygons:[],width:612,height:792})
       .then(d=>{setPagePolygons(d.polygons||[]);setPageDims({width:d.width||612,height:d.height||792});})
@@ -251,6 +257,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     const mt={};
     Object.values(assignments).forEach(a=>{const k=a.materialName||a.category||"Panel";if(!mt[k])mt[k]={name:k,sf:0};mt[k].sf+=a.area_sf||0;});
     bucketShapes.forEach(s=>{const k=s.material||"Cladding (bucket)";if(!mt[k])mt[k]={name:k,sf:0};mt[k].sf+=s.area_sf||0;});
+    selGroupList.forEach(g=>{const k=(selGroups[g.group]||"Cladding (preview)")+" (preview)";if(!mt[k])mt[k]={name:k,sf:0};mt[k].sf+=g.approx_sf||0;});
     const wb=buildExcel(results.projName||"Project",Object.values(mt));
     XLSX.writeFile(wb,"BFS_Takeoff_"+(results.projName||"Project").replace(/\s+/g,"_")+".xlsx");
   };
@@ -300,6 +307,18 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   const setBucketMaterial=(id,mat)=>setBucketShapes(prev=>prev.map(s=>s.id===id?{...s,material:mat}:s));
   const pageBucketShapes=bucketShapes.filter(s=>s.page===pageNum);
   const bucketTotalSF=pageBucketShapes.reduce((s,x)=>s+(x.area_sf||0),0);
+  const loadGroups=async()=>{
+    setGroupBusy(true); setPreviewGroups([]); setSelGroups({});
+    try{
+      const r=await fetch(BACKEND+"/material-groups",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page:pageNum})}).then(r=>r.json());
+      setPreviewGroups(r.groups||[]);
+    }catch(e){ setPreviewGroups([]); }
+    setGroupBusy(false);
+  };
+  const toggleGroup=g=>setSelGroups(prev=>{const n={...prev}; if(n[g.group]!==undefined) delete n[g.group]; else n[g.group]=""; return n;});
+  const setGroupMat=(gid,mat)=>setSelGroups(prev=>({...prev,[gid]:mat}));
+  const selGroupList=previewGroups.filter(g=>selGroups[g.group]!==undefined);
+  const selGroupSF=selGroupList.reduce((s,g)=>s+(g.approx_sf||0),0);
   const applyCalibration=()=>{
     if(calibPts.length<2) return;
     const [a,b]=calibPts;
@@ -345,6 +364,8 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
             <button onClick={cancelCorners} style={{fontSize:"0.63rem",padding:"0.25rem 0.5rem",borderRadius:5,border:"1px solid #2D5280",background:NAVY_LT,color:"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
           </div>}
           {bucketMode&&snapMsg&&<div style={{fontSize:"0.63rem",padding:"0.3rem 0.6rem",borderRadius:20,background:NAVY_LT,color:snapMsg[0]==="✓"?"#6EE7B7":"#CBD5E1",border:"1px solid #2D5280"}}>{snapMsg}</div>}
+          <button onClick={()=>{const nm=!groupMode;setGroupMode(nm);setBucketMode(false);setCalibMode(false);setCornerMode(false);if(nm&&previewGroups.length===0)loadGroups();}} style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid "+(groupMode?"#A78BFA":"#2D5280"),background:groupMode?"#3730A3":NAVY_LT,color:groupMode?"#DDD6FE":"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>🎨 {groupMode?(groupBusy?"Finding groups…":"Auto-groups — click to pick"):"Auto-groups (preview)"}</button>
+          {groupMode&&!groupBusy&&<div style={{fontSize:"0.62rem",padding:"0.3rem 0.6rem",borderRadius:20,background:NAVY_LT,color:"#C4B5FD",border:"1px solid #4C1D95"}}>Preview — pick the groups you're bidding {previewGroups.length>0?`(${previewGroups.length} found)`:""}</div>}
         </div>
         {!pageImage?<div style={{color:"#475569",fontSize:"0.8rem",marginTop:"4rem"}}>Loading elevation...</div>:
           <div style={{position:"relative",display:"inline-block",maxWidth:"100%"}}>
@@ -361,7 +382,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
                 const pts=toSVGPoints(zone.points);
                 const lx=zone.cx*pageDims.width,ly=zone.cy*pageDims.height;
                 const showLabel=!dimmed&&(a||isSel||zone.source==="bluebeam"||zone.source==="claude_vision");
-                return <g key={zone.id} style={{cursor:(calibMode||bucketMode)?"crosshair":"pointer"}} onClick={e=>{if(calibMode||bucketMode)return;e.stopPropagation();const k=gkey(zone);setActiveGroup(activeGroup===k?null:k);}}>
+                return <g key={zone.id} style={{cursor:(calibMode||bucketMode)?"crosshair":"pointer",pointerEvents:groupMode?"none":"auto"}} onClick={e=>{if(calibMode||bucketMode||groupMode)return;e.stopPropagation();const k=gkey(zone);setActiveGroup(activeGroup===k?null:k);}}>
                   <polygon points={pts} fill={color} fillOpacity={dimmed?0.06:isSel?0.6:zone.source==="bluebeam"?0.45:a?0.38:0.22} stroke={isSel?"#fff":color} strokeWidth={isSel?2.5:1.5} strokeOpacity={dimmed?0.25:0.9}/>
                   {showLabel&&<><rect x={lx-32} y={ly-9} width={64} height={18} fill="rgba(0,0,0,0.8)" rx={4}/><text x={lx} y={ly+2} textAnchor="middle" dominantBaseline="middle" fill="white" fontSize={pageDims.width/75} fontFamily="Inter,Arial" fontWeight="bold">{zone.source==="claude_vision"&&!a?zone.material_type:Math.round(zone.area_sf)+" SF"}</text></>}
                 </g>;
@@ -374,6 +395,9 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
               </g>;})}
               {cornerMode&&cornerPts.length>0&&<polyline points={toSVGPoints(cornerPts.map(p=>[p.x,p.y]))} fill="none" stroke="#FCD34D" strokeWidth={pageDims.width/400} strokeDasharray={pageDims.width/120}/>}
               {cornerMode&&cornerPts.map((p,i)=><circle key={"kp"+i} cx={p.x*pageDims.width} cy={p.y*pageDims.height} r={pageDims.width/130} fill="#FCD34D" stroke="#fff" strokeWidth={pageDims.width/700}/>)}
+              {groupMode&&previewGroups.map(g=>{const sel=selGroups[g.group]!==undefined;const col=`rgb(${g.color.map(c=>Math.round(c*255)).join(",")})`;return <g key={"pg"+g.group} onClick={e=>{e.stopPropagation();toggleGroup(g);}} style={{cursor:"pointer"}}>
+                {g.patches.map((p,i)=><rect key={i} x={p[0]*pageDims.width} y={p[1]*pageDims.height} width={p[2]*pageDims.width} height={p[3]*pageDims.height} fill={col} fillOpacity={sel?0.6:0.25} stroke={sel?"#fff":"none"} strokeWidth={sel?pageDims.width/1500:0}/>)}
+              </g>;})}
             </svg>}
           </div>
         }
@@ -455,6 +479,17 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
               </div>
               <button onClick={exportInteractiveExcel} style={{width:"100%",padding:"0.65rem",background:"linear-gradient(180deg,#5A92D2,#3F79BC)",color:"#fff",border:"none",borderRadius:7,fontSize:"0.72rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>↓ Export Excel</button>
             </>}
+            {selGroupList.length>0&&<div style={{marginTop:"0.5rem",padding:"0.6rem",background:NAVY,borderRadius:7,border:"1px solid #8B5CF655"}}>
+              <div style={{fontSize:"0.6rem",letterSpacing:"0.12em",color:"#C4B5FD",textTransform:"uppercase",fontWeight:700,marginBottom:"0.4rem"}}>🎨 Selected groups</div>
+              {selGroupList.map(g=><div key={g.group} style={{display:"flex",alignItems:"center",gap:"0.35rem",marginBottom:"0.3rem"}}>
+                <span style={{width:12,height:12,borderRadius:3,background:`rgb(${g.color.map(c=>Math.round(c*255)).join(",")})`,flexShrink:0}}/>
+                <span style={{fontSize:"0.68rem",fontWeight:700,color:"#E2E8F0",minWidth:52}}>~{Math.round(g.approx_sf).toLocaleString()}</span>
+                <input value={selGroups[g.group]} onChange={e=>setGroupMat(g.group,e.target.value)} placeholder="material…" style={{flex:1,minWidth:0,padding:"0.2rem 0.4rem",borderRadius:5,border:"1px solid #2D5280",background:NAVY_LT,color:"#E2E8F0",fontSize:"0.6rem",fontFamily:"inherit"}}/>
+              </div>)}
+              <div style={{display:"flex",justifyContent:"space-between",padding:"0.3rem 0",fontSize:"0.68rem",color:"#C4B5FD",fontWeight:700}}><span>Preview total</span><span>~{Math.round(selGroupSF).toLocaleString()} SF</span></div>
+              <div style={{fontSize:"0.56rem",color:"#F59E0B",marginBottom:"0.35rem",lineHeight:1.4}}>⚠ Preview estimate — measure exact with 🪣 Bucket before bidding</div>
+              <button onClick={exportInteractiveExcel} style={{width:"100%",padding:"0.45rem",background:"linear-gradient(180deg,#A78BFA,#8B5CF6)",color:"#fff",border:"none",borderRadius:6,fontSize:"0.66rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>↓ Export (incl. preview)</button>
+            </div>}
             {bucketShapes.length>0&&<div style={{marginTop:"0.5rem",padding:"0.6rem",background:NAVY,borderRadius:7,border:"1px solid #10B98155"}}>
               <div style={{fontSize:"0.6rem",letterSpacing:"0.12em",color:"#6EE7B7",textTransform:"uppercase",fontWeight:700,marginBottom:"0.5rem"}}>🪣 Bucket fills</div>
               {bucketShapes.map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:"0.35rem",marginBottom:"0.3rem"}}>
