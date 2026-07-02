@@ -474,8 +474,14 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
       <div style={{flex:1,overflow:"auto",display:"flex",flexDirection:"column",alignItems:"center",padding:"1rem",gap:"0.75rem"}}>
         <div style={{alignSelf:"stretch",display:"flex",alignItems:"center",gap:"0.5rem",flexWrap:"wrap"}}>
           <div style={{fontSize:"0.65rem",color:"#64748B",background:NAVY_LT,padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid #2D5280"}}>
-            {polyMethod==="bluebeam"?`📐 Bluebeam — ${displayZones.length} surfaces`:polyMethod==="vector_cluster"||polyMethod==="vector"?`📏 Vector — ${displayZones.length} surfaces`:polyMethod==="claude_vision"?`🧠 AI Vision — ${displayZones.length} surfaces`:"No surfaces on this page"}
+            {displayZones.length===0?"No surfaces on this page"
+              :polyMethod==="bluebeam"?`📐 Bluebeam markup — ${displayZones.length} surfaces (exact)`
+              :polyMethod==="vector"||polyMethod==="vector_cluster"?`📐 Read from drawing geometry — ${displayZones.length} surfaces`
+              :polyMethod==="model"?`🧠 AI model — ${displayZones.length} surfaces (verify)`
+              :polyMethod==="texture"?`🎨 AI texture — ${displayZones.length} surfaces (verify)`
+              :`${displayZones.length} surfaces`}
           </div>
+          <div style={{fontSize:"0.62rem",color:"#5E7BA0",padding:"0.3rem 0.6rem",borderRadius:20,border:"1px dashed #2D5280"}}>🔍 wheel = zoom · shift-drag = pan</div>
           <button onClick={()=>{setCalibMode(m=>!m);setCalibPts([]);}} style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid "+(calibMode?"#EF4444":"#2D5280"),background:calibMode?"#7F1D1D":NAVY_LT,color:calibMode?"#FCA5A5":"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>📏 {calibMode?(calibPts.length<2?`Click point ${calibPts.length+1} of 2`:"2 points set"):"Calibrate scale"}</button>
           {calibFt&&!calibMode&&<div style={{fontSize:"0.62rem",padding:"0.3rem 0.6rem",borderRadius:20,background:"#064E3B",color:"#6EE7B7",border:"1px solid #065F46"}}>✓ Calibrated · {calibFt.toFixed(2)} ft/in<span onClick={()=>setCalibFt(null)} style={{cursor:"pointer",textDecoration:"underline",marginLeft:6}}>reset</span></div>}
           {calibMode&&calibPts.length===2&&<div style={{display:"flex",alignItems:"center",gap:"0.35rem",fontSize:"0.65rem",color:"#CBD5E1"}}>
@@ -654,6 +660,47 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   );
 }
 
+/* ── Konva deep-zoom hook: wheel zooms to cursor (1–14×), drag pans when zoomed, past 2.2×
+     swaps in a hi-res render of the viewport. localPos() gives zoom-corrected coordinates. ── */
+function useKonvaZoom(BACKEND, jobId, pageNum, stageW, stageH) {
+  const [view, setView] = useState({ k: 1, x: 0, y: 0 });
+  const [hi, setHi] = useState(null);
+  const timer = useRef();
+  useEffect(() => { setView({ k: 1, x: 0, y: 0 }); setHi(null); }, [jobId, pageNum]);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const sched = (k, x, y) => {
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      if (k < 2.2 || !jobId || !stageW || !stageH) { setHi(null); return; }
+      const nx0 = Math.max(0, (-x) / k / stageW), ny0 = Math.max(0, (-y) / k / stageH);
+      const nx1 = Math.min(1, ((-x) / k + stageW / k) / stageW), ny1 = Math.min(1, ((-y) / k + stageH / k) / stageH);
+      const url = `${BACKEND}/page-crop/${jobId}/${pageNum}?x0=${nx0.toFixed(4)}&y0=${ny0.toFixed(4)}&x1=${nx1.toFixed(4)}&y1=${ny1.toFixed(4)}&px=2000`;
+      const im = new window.Image(); im.crossOrigin = "anonymous";
+      im.onload = () => setHi({ im, x: nx0 * stageW, y: ny0 * stageH, w: (nx1 - nx0) * stageW, h: (ny1 - ny0) * stageH });
+      im.src = url;
+    }, 350);
+  };
+  const onWheel = e => {
+    e.evt.preventDefault();
+    const st = e.target.getStage(); const p = st.getPointerPosition(); if (!p) return;
+    const ok = view.k;
+    const nk = Math.max(1, Math.min(14, ok * (e.evt.deltaY < 0 ? 1.2 : 1 / 1.2)));
+    const mx = (p.x - view.x) / ok, my = (p.y - view.y) / ok;
+    const nv = nk === 1 ? { k: 1, x: 0, y: 0 } : { k: nk, x: p.x - mx * nk, y: p.y - my * nk };
+    setView(nv); sched(nv.k, nv.x, nv.y);
+  };
+  const onDragEnd = e => {
+    const st = e.target;
+    if (st.getStage && st === st.getStage()) {
+      setView(v => { const nv = { ...v, x: st.x(), y: st.y() }; sched(nv.k, nv.x, nv.y); return nv; });
+    }
+  };
+  const stageProps = { scaleX: view.k, scaleY: view.k, x: view.x, y: view.y, draggable: view.k > 1, dragDistance: 4, onWheel, onDragEnd };
+  const hiResNode = hi ? <KImage image={hi.im} x={hi.x} y={hi.y} width={hi.w} height={hi.h} listening={false} /> : null;
+  const localPos = st => { const p = st.getPointerPosition(); if (!p) return null; return { x: (p.x - view.x) / view.k, y: (p.y - view.y) / view.k }; };
+  return { view, stageProps, hiResNode, localPos };
+}
+
 /* ── Konva polygon editor: drag vertices to correct the AI, live SF ── */
 function EditorView({ results, BACKEND, setResults }) {
   const elevations = results.takeoffData.filter(e=>e.pageNumber);
@@ -688,6 +735,7 @@ function EditorView({ results, BACKEND, setResults }) {
 
   const sc = stageW/pageDims.width;
   const stageH = pageDims.height*sc;
+  const zoom = useKonvaZoom(BACKEND, results.jobId, pageNum, stageW, stageH);
   const effFt = (()=>{ for(const p of polys){ if(p.area_sf>0&&p.points.length>=3){ const sh=polyAreaSF(p.points,72,pageDims.width,pageDims.height); if(sh>0) return 72*Math.sqrt(p.area_sf/sh);}} return 8; })();
   const areaOf=p=>polyAreaSF(p.points,effFt,pageDims.width,pageDims.height);
   const totalSF=polys.reduce((s,p)=>s+(p.type==="cut"?-areaOf(p):areaOf(p)),0);
@@ -751,13 +799,14 @@ function EditorView({ results, BACKEND, setResults }) {
         {elevations.map((e,i)=><div key={i} onClick={()=>setElevIdx(i)} style={{padding:"0.6rem 0.8rem",cursor:"pointer",borderBottom:"1px solid "+NAVY_LT,background:i===elevIdx?NAVY_LT:"transparent",fontSize:"0.7rem",color:i===elevIdx?"#E2E8F0":"#94A3B8",borderLeft:i===elevIdx?"3px solid "+BLUE:"3px solid transparent"}}>{e.title||"Page "+e.pageNumber}</div>)}
       </div>
       <div ref={wrapRef} style={{flex:1,overflow:"auto",padding:"1rem"}}>
-        <div style={{fontSize:"0.62rem",color:"#94A3B8",marginBottom:"0.5rem"}}>{mode==="cut"?"Cut-out mode: click around the window/door the AI missed, then Finish — it subtracts from the SF.":"Click a shape to select · drag its dots to correct it · SF updates live"}</div>
-        {img?<Stage width={stageW} height={stageH} onMouseDown={e=>{
-            if(mode==="cut"){ const pos=e.target.getStage().getPointerPosition(); if(pos) setDraft(prev=>[...prev,[pos.x/(pageDims.width*sc),pos.y/(pageDims.height*sc)]]); return; }
+        <div style={{fontSize:"0.62rem",color:"#94A3B8",marginBottom:"0.5rem"}}>{mode==="cut"?"Cut-out mode: click around the window/door the AI missed, then Finish — it subtracts from the SF.":"Click a shape to select · drag its dots to correct it · SF updates live"}<span style={{color:"#64748B"}}> · wheel = zoom · drag = pan when zoomed</span></div>
+        {img?<Stage width={stageW} height={stageH} {...zoom.stageProps} onClick={e=>{
+            if(mode==="cut"){ const pos=zoom.localPos(e.target.getStage()); if(pos) setDraft(prev=>[...prev,[pos.x/(pageDims.width*sc),pos.y/(pageDims.height*sc)]]); return; }
             if(e.target===e.target.getStage()) setSelId(null);
           }}>
           <Layer>
             <KImage image={img} width={stageW} height={stageH}/>
+            {zoom.hiResNode}
             {polys.map(p=>{
               const flat=p.points.flatMap(([nx,ny])=>[nx*pageDims.width*sc, ny*pageDims.height*sc]);
               const isCut=p.type==="cut";
@@ -1256,6 +1305,7 @@ function ManualView({ results, BACKEND }) {
 
   const sc = stageW / pageDims.width;
   const stageH = pageDims.height * sc;
+  const zoom = useKonvaZoom(BACKEND, results?.jobId, pageNum, stageW, stageH);
   const COLS = ["#4A86C8", "#E85DA0", "#3FB36B", "#F0A23C", "#9B6FD4", "#46C5C5"];
 
   const shoelacePx = pts => {
@@ -1282,7 +1332,7 @@ function ManualView({ results, BACKEND }) {
     return best || [nx, ny];
   };
   const onDown = e => {
-    const st = e.target.getStage(); const pos = st.getPointerPosition(); if (!pos) return;
+    const st = e.target.getStage(); const pos = zoom.localPos(st); if (!pos) return;
     const [nx, ny] = snapTo(pos.x / stageW, pos.y / stageH);  // lock to the exact corner like Bluebeam
     if (mode === "calib") { setCalibPts(prev => [...prev, [nx, ny]].slice(-2)); return; }
     setDraft(prev => [...prev, [nx, ny]]);
@@ -1354,11 +1404,12 @@ function ManualView({ results, BACKEND }) {
       </div>
       <div ref={wrapRef} style={{ flex: 1, overflow: "auto", padding: "1.25rem" }}>
         <div style={{ fontSize: "0.64rem", color: "#64748B", marginBottom: "0.65rem" }}>
-          {!calib ? "① Set scale first: click 'Scale', click two points a known distance apart, type the feet." : mode === "cut" ? "Cut-out mode: click around a window/door, then Finish — it subtracts." : "Click around the wall, then Finish. SF uses your scale."}<span style={{ color: "#94A3B8" }}> · Ctrl+Z undo · Ctrl+Y redo · Esc cancels the shape you're drawing</span>
+          {!calib ? "① Set scale first: click 'Scale', click two points a known distance apart, type the feet." : mode === "cut" ? "Cut-out mode: click around a window/door, then Finish — it subtracts." : "Click around the wall, then Finish. SF uses your scale."}<span style={{ color: "#94A3B8" }}> · Ctrl+Z undo · Ctrl+Y redo · Esc cancels the shape · wheel = zoom, drag = pan when zoomed</span>
         </div>
-        {img ? <div style={{ display:"inline-block", borderRadius:10, overflow:"hidden", boxShadow:"0 12px 40px -14px rgba(15,23,42,0.30), 0 0 0 1px #E1E8F0" }}><Stage width={stageW} height={stageH} onMouseDown={onDown}>
+        {img ? <div style={{ display:"inline-block", borderRadius:10, overflow:"hidden", boxShadow:"0 12px 40px -14px rgba(15,23,42,0.30), 0 0 0 1px #E1E8F0" }}><Stage width={stageW} height={stageH} {...zoom.stageProps} onClick={onDown} onTap={onDown}>
           <Layer>
             <KImage image={img} width={stageW} height={stageH} />
+            {zoom.hiResNode}
             {shapes.map(s => {
               const flat = s.points.flatMap(([nx, ny]) => [nx * stageW, ny * stageH]);
               const sel = selId === s.id;
@@ -1872,6 +1923,7 @@ export default function BFSEstimator() {
                   <div style={{fontSize:"3rem",marginBottom:"0.75rem",opacity:0.5}}>📂</div>
                   <div style={{fontSize:"1rem",fontWeight:600,color:"rgba(255,255,255,0.75)",marginBottom:"0.35rem"}}>Drop your blueprint PDF here</div>
                   <div style={{fontSize:"0.78rem",color:"rgba(255,255,255,0.3)"}}>or click to browse your files</div>
+                  <div style={{fontSize:"0.68rem",color:"rgba(127,176,224,0.55)",marginTop:"0.6rem"}}>Marked-up Bluebeam sets read exact · unmarked sets auto-read — for the cleanest auto-read, upload just the elevation sheets</div>
                 </>
               )}
               {file&&!isRunning&&(
@@ -1927,7 +1979,7 @@ export default function BFSEstimator() {
             {/* Feature pills */}
             {!file&&!isRunning&&(
               <div style={{display:"flex",justifyContent:"center",gap:"0.5rem",flexWrap:"wrap"}}>
-                {["Elevations","Soffits","Returns","Excel Export","Evidence PDF"].map(tag=>(
+                {["Reads drawing geometry","Deep zoom","Elevations","Excel Export","Evidence PDF"].map(tag=>(
                   <div key={tag} style={{padding:"0.3rem 0.75rem",borderRadius:20,background:"rgba(74,134,200,0.1)",border:"1px solid rgba(74,134,200,0.2)",fontSize:"0.68rem",color:"rgba(74,134,200,0.8)",fontWeight:500}}>{tag}</div>
                 ))}
               </div>
