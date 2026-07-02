@@ -1367,6 +1367,20 @@ export default function BFSEstimator() {
   const reviewOk = reviewElevs.length>0 && defaultScaleN===0 && scaleWarnN===0 && labelWarnN===0;
   // Estimator's LINEAR (LF) measurements — trim/soffit/fascia captured from polyline markups
   const linearRollup = (()=>{ const m={}; (results?.takeoffData||[]).forEach(e=>(e.linearItems||[]).forEach(it=>{const k=dispName(it.material||"Linear");if(!m[k])m[k]=0;m[k]+=it.lf||0;})); return Object.entries(m).map(([material,lf])=>({material,lf})).sort((a,b)=>b.lf-a.lf); })();
+  // ── Budget tab: SF (+ LF trim) × the rates the estimator sets per job → live bid + one-click Excel ──
+  const setRate = (cat,v)=>setPricing(p=>({...p,rates:{...p.rates,[cat]:v}}));
+  const setLfRate = (m,v)=>setPricing(p=>({...p,lfRates:{...(p.lfRates||{}),[m]:v}}));
+  const lfRateOf = m => (pricing.lfRates && pricing.lfRates[m]!=null) ? pricing.lfRates[m] : 12;
+  const lfRows = linearRollup.map(it=>({...it, rate:lfRateOf(it.material), cost: (it.lf||0)*lfRateOf(it.material)}));
+  const lfSubtotal = lfRows.reduce((s,r)=>s+r.cost,0);
+  const budgetSubtotal = costSubtotal + lfSubtotal;
+  const budgetTotal = budgetSubtotal*(1+pricing.marginPct/100);
+  const exportBudgetExcel=()=>{
+    if(!results) return;
+    const mats=[...priceRows.map(r=>({name:r.cat,sf:r.net,rate:r.rate})),...lfRows.map(r=>({name:r.material+" (per LF)",sf:r.lf,rate:r.rate}))];
+    const wb=buildExcel(results.projName||"Project",mats,{wastePct:pricing.wastePct,marginPct:pricing.marginPct});
+    XLSX.writeFile(wb,"BFS_Budget_"+(results.projName||"Project").replace(/\s+/g,"_")+".xlsx");
+  };
   const linearTotalLF = linearRollup.reduce((s,r)=>s+r.lf,0);
   const triage = reviewElevs.map(e=>({ ...elevConfidence(e) }));
   const readyN = triage.filter(t=>t.status==="ready").length;
@@ -1404,7 +1418,7 @@ export default function BFSEstimator() {
           )}
           {/* Top-level nav tabs */}
           <div style={{display:"flex",gap:"0.2rem",background:"rgba(255,255,255,0.06)",borderRadius:9,padding:"0.2rem"}}>
-            {[["takeoff","Takeoff"],["queue","Queue"],["manual","Draw"],["scope","Scope"],["model","Model"]].map(([t,label])=>(
+            {[["takeoff","Takeoff"],["queue","Queue"],["manual","Draw"],["scope","Scope"],["budget","Budget"],["model","Model"]].map(([t,label])=>(
               <button key={t} onClick={()=>setAppTab(t)} style={{padding:"0.42rem 1.05rem",borderRadius:7,border:"none",fontSize:"0.74rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer",background:appTab===t?BLUE:"transparent",color:appTab===t?"#fff":"rgba(255,255,255,0.55)",boxShadow:appTab===t?"0 2px 10px rgba(74,134,200,0.45)":"none",letterSpacing:"-0.01em"}}>{label}</button>
             ))}
           </div>
@@ -1413,6 +1427,65 @@ export default function BFSEstimator() {
 
       {appTab==="scope"&&<ScopeView/>}
       {appTab==="model"&&<ModelView/>}
+      {appTab==="budget"&&(
+        <div style={{flex:1,overflowY:"auto",padding:"2rem"}}>
+          <div style={{maxWidth:840,margin:"0 auto"}}>
+            <div style={{fontSize:"0.7rem",letterSpacing:"0.18em",color:BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"0.3rem"}}>Budget</div>
+            <h2 style={{fontSize:"1.5rem",fontWeight:800,color:"#0F172A",margin:"0 0 0.3rem",letterSpacing:"-0.02em"}}>Price the bid — no Excel needed</h2>
+            <p style={{fontSize:"0.82rem",color:"#64748B",margin:"0 0 1.5rem",lineHeight:1.6}}>Your takeoff SF × the rates you set for <i>this</i> job (you don't always charge the same). Edit a rate and the total updates live. Export writes your BFS estimate sheet automatically.</p>
+            {(!results||!priceRows.length)?(
+              <div style={{padding:"2.5rem",textAlign:"center",color:"#94A3B8",background:"#fff",borderRadius:12,border:"1px solid #EEF2F7",fontSize:"0.85rem"}}>Run a takeoff and tag your materials first — then set your prices here.</div>
+            ):(<>
+              <div style={{background:"#fff",borderRadius:12,border:"1px solid #EEF2F7",overflow:"hidden",marginBottom:"1rem"}}>
+                <div style={{display:"grid",gridTemplateColumns:"1.7fr 0.9fr 0.9fr 1fr 1fr",padding:"0.6rem 1rem",background:"#F8FAFC",fontSize:"0.58rem",fontWeight:700,color:"#64748B",textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                  <div>Material</div><div style={{textAlign:"right"}}>Net SF</div><div style={{textAlign:"right"}}>+Waste</div><div style={{textAlign:"right"}}>Rate $/SF</div><div style={{textAlign:"right"}}>Cost</div>
+                </div>
+                {priceRows.map(r=>(
+                  <div key={r.cat} style={{display:"grid",gridTemplateColumns:"1.7fr 0.9fr 0.9fr 1fr 1fr",padding:"0.5rem 1rem",borderTop:"1px solid #F1F5F9",alignItems:"center",fontSize:"0.76rem"}}>
+                    <div style={{fontWeight:600,color:"#0F172A"}}>{r.cat}</div>
+                    <div style={{textAlign:"right",color:"#64748B"}}>{Math.round(r.net).toLocaleString()}</div>
+                    <div style={{textAlign:"right",color:"#94A3B8"}}>{Math.round(r.adjSF).toLocaleString()}</div>
+                    <div style={{textAlign:"right",whiteSpace:"nowrap"}}><span style={{color:"#94A3B8"}}>$</span><input type="number" value={r.rate} onChange={e=>setRate(r.cat,parseFloat(e.target.value)||0)} style={{width:60,textAlign:"right",padding:"0.22rem 0.35rem",borderRadius:5,border:"1px solid #CBD5E1",fontSize:"0.74rem",fontFamily:"inherit"}}/></div>
+                    <div style={{textAlign:"right",fontWeight:700,color:"#0F172A"}}>${Math.round(r.cost).toLocaleString()}</div>
+                  </div>
+                ))}
+              </div>
+              {lfRows.length>0&&<div style={{background:"#fff",borderRadius:12,border:"1px solid #EEF2F7",overflow:"hidden",marginBottom:"1rem"}}>
+                <div style={{display:"grid",gridTemplateColumns:"1.7fr 0.9fr 0.9fr 1fr 1fr",padding:"0.6rem 1rem",background:"#F8FAFC",fontSize:"0.58rem",fontWeight:700,color:"#64748B",textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                  <div>Trim / Linear</div><div style={{textAlign:"right"}}>LF</div><div/><div style={{textAlign:"right"}}>Rate $/LF</div><div style={{textAlign:"right"}}>Cost</div>
+                </div>
+                {lfRows.map(r=>(
+                  <div key={r.material} style={{display:"grid",gridTemplateColumns:"1.7fr 0.9fr 0.9fr 1fr 1fr",padding:"0.5rem 1rem",borderTop:"1px solid #F1F5F9",alignItems:"center",fontSize:"0.76rem"}}>
+                    <div style={{fontWeight:600,color:"#0F172A"}}>{r.material}</div>
+                    <div style={{textAlign:"right",color:"#64748B"}}>{Math.round(r.lf).toLocaleString()}</div>
+                    <div/>
+                    <div style={{textAlign:"right",whiteSpace:"nowrap"}}><span style={{color:"#94A3B8"}}>$</span><input type="number" value={r.rate} onChange={e=>setLfRate(r.material,parseFloat(e.target.value)||0)} style={{width:60,textAlign:"right",padding:"0.22rem 0.35rem",borderRadius:5,border:"1px solid #CBD5E1",fontSize:"0.74rem",fontFamily:"inherit"}}/></div>
+                    <div style={{textAlign:"right",fontWeight:700,color:"#0F172A"}}>${Math.round(r.cost).toLocaleString()}</div>
+                  </div>
+                ))}
+              </div>}
+              <div style={{display:"flex",gap:"0.75rem",marginBottom:"1rem"}}>
+                {[["Waste %","wastePct"],["Margin %","marginPct"]].map(([lab,key])=>(
+                  <div key={key} style={{flex:1,background:"#fff",borderRadius:10,border:"1px solid #EEF2F7",padding:"0.6rem 0.85rem",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                    <span style={{fontSize:"0.72rem",color:"#64748B",fontWeight:600}}>{lab}</span>
+                    <input type="number" value={pricing[key]} onChange={e=>setPricing(p=>({...p,[key]:parseFloat(e.target.value)||0}))} style={{width:56,textAlign:"right",padding:"0.25rem 0.4rem",borderRadius:5,border:"1px solid #CBD5E1",fontSize:"0.78rem",fontFamily:"inherit"}}/>
+                  </div>
+                ))}
+              </div>
+              <div style={{background:NAVY,borderRadius:12,padding:"1.15rem 1.35rem",color:"#fff"}}>
+                {[["Materials",costSubtotal],...(lfSubtotal>0?[["Trim / linear",lfSubtotal]]:[]),["Subtotal",budgetSubtotal],["Margin ("+pricing.marginPct+"%)",budgetSubtotal*pricing.marginPct/100]].map(([l,v])=>(
+                  <div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:"0.76rem",color:"rgba(255,255,255,0.7)",marginBottom:"0.35rem"}}><span>{l}</span><span>${Math.round(v).toLocaleString()}</span></div>
+                ))}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",borderTop:"1px solid rgba(255,255,255,0.12)",paddingTop:"0.6rem",marginTop:"0.4rem"}}>
+                  <span style={{fontSize:"0.7rem",fontWeight:700,color:"#4ADE80",letterSpacing:"0.08em"}}>BID TOTAL</span>
+                  <span style={{fontSize:"1.7rem",fontWeight:800,color:"#4ADE80"}}>${Math.round(budgetTotal).toLocaleString()}</span>
+                </div>
+                <button onClick={exportBudgetExcel} style={{width:"100%",marginTop:"0.9rem",padding:"0.7rem",background:"linear-gradient(180deg,#5A92D2,#3F79BC)",color:"#fff",border:"none",borderRadius:8,fontSize:"0.78rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>↓ Export / update the Excel</button>
+              </div>
+            </>)}
+          </div>
+        </div>
+      )}
       {appTab==="queue"&&<QueueView onOpen={openResult}/>}
       {appTab==="manual"&&<ManualView results={results} BACKEND={BACKEND}/>}
 
