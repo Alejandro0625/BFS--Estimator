@@ -1071,6 +1071,11 @@ function ManualView({ results, BACKEND }) {
   const [taught, setTaught] = useState(null);
   const [snapPts, setSnapPts] = useState([]);          // drawing's real CAD corners (Bluebeam-style snap)
   const edited = useRef(false);                        // true once she actually edits (so flywheel learns only real corrections)
+  const undoRef = useRef([]);                          // history of shapes snapshots (Ctrl+Z)
+  const redoRef = useRef([]);
+  const shapesRef = useRef(shapes); shapesRef.current = shapes;
+  const draftRef = useRef(draft); draftRef.current = draft;
+  const pushHist = () => { undoRef.current = [...undoRef.current.slice(-49), shapesRef.current]; redoRef.current = []; };
 
   const rgbToHex = c => (Array.isArray(c) && c.length >= 3)
     ? "#" + c.slice(0, 3).map(v => Math.max(0, Math.min(255, Math.round(v * 255))).toString(16).padStart(2, "0")).join("")
@@ -1079,7 +1084,7 @@ function ManualView({ results, BACKEND }) {
   useEffect(() => {
     if (!pageNum || !results?.jobId) { setImg(null); return; }
     setShapes([]); setDraft([]); setSelId(null); setImg(null); setCalib(null); setCalibPts([]); setSnapPts([]);
-    edited.current = false;
+    edited.current = false; undoRef.current = []; redoRef.current = [];
     const im = new window.Image();
     im.crossOrigin = "anonymous";
     im.src = BACKEND + "/page-image/" + results.jobId + "/" + pageNum;
@@ -1141,6 +1146,7 @@ function ManualView({ results, BACKEND }) {
   const finish = () => {
     if (draft.length < 3) return;
     edited.current = true;
+    pushHist();
     setShapes(prev => [...prev, { id: Date.now(), points: draft, type: mode === "cut" ? "cut" : "add",
       name: mode === "cut" ? "Cutout" : "Area " + (prev.filter(s => s.type !== "cut").length + 1),
       color: curColor }]);
@@ -1155,7 +1161,33 @@ function ManualView({ results, BACKEND }) {
     setCalibPts([]); setMode("add");
   };
   const rename = (id, nm) => { edited.current = true; setShapes(prev => prev.map(s => s.id === id ? { ...s, name: nm } : s)); };
-  const del = id => { edited.current = true; setShapes(prev => prev.filter(s => s.id !== id)); setSelId(null); };
+  const del = id => { edited.current = true; pushHist(); setShapes(prev => prev.filter(s => s.id !== id)); setSelId(null); };
+  // Ctrl+Z / Ctrl+Y — undo an accidental click or shape (drew by accident = must be reversible)
+  useEffect(() => {
+    const onKey = e => {
+      const tag = (e.target && e.target.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea") return;
+      const k = (e.key || "").toLowerCase();
+      if (k === "escape" && draftRef.current.length) { setDraft([]); return; }
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (k === "z" && !e.shiftKey) {
+        e.preventDefault();
+        if (draftRef.current.length) { setDraft(d => d.slice(0, -1)); return; }  // step back one click first
+        if (!undoRef.current.length) return;
+        const prev = undoRef.current.pop();
+        redoRef.current.push(shapesRef.current);
+        edited.current = true; setShapes(prev); setSelId(null);
+      } else if (k === "y" || (k === "z" && e.shiftKey)) {
+        e.preventDefault();
+        if (!redoRef.current.length) return;
+        const next = redoRef.current.pop();
+        undoRef.current.push(shapesRef.current);
+        edited.current = true; setShapes(next); setSelId(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   // Silent auto-learning: only save as a training example once SHE actually edits (not the AI's own pre-loaded shapes).
   useEffect(() => {
     if (!results?.jobId || !shapes.length || !edited.current) return;
@@ -1178,7 +1210,7 @@ function ManualView({ results, BACKEND }) {
       </div>
       <div ref={wrapRef} style={{ flex: 1, overflow: "auto", padding: "1.25rem" }}>
         <div style={{ fontSize: "0.64rem", color: "#64748B", marginBottom: "0.65rem" }}>
-          {!calib ? "① Set scale first: click 'Scale', click two points a known distance apart, type the feet." : mode === "cut" ? "Cut-out mode: click around a window/door, then Finish — it subtracts." : "Click around the wall, then Finish. SF uses your scale."}
+          {!calib ? "① Set scale first: click 'Scale', click two points a known distance apart, type the feet." : mode === "cut" ? "Cut-out mode: click around a window/door, then Finish — it subtracts." : "Click around the wall, then Finish. SF uses your scale."}<span style={{ color: "#94A3B8" }}> · Ctrl+Z undo · Ctrl+Y redo · Esc cancels the shape you're drawing</span>
         </div>
         {img ? <div style={{ display:"inline-block", borderRadius:10, overflow:"hidden", boxShadow:"0 12px 40px -14px rgba(15,23,42,0.30), 0 0 0 1px #E1E8F0" }}><Stage width={stageW} height={stageH} onMouseDown={onDown}>
           <Layer>
@@ -1912,69 +1944,84 @@ export default function BFSEstimator() {
               <div style={{flex:1,overflow:"hidden"}}><EditorView results={results} BACKEND={BACKEND}/></div>
             )}
             {viewMode==="table"&&(
-              <div style={{flex:1,overflowY:"auto",padding:"1.5rem"}}>
-                {/* Triage summary — tells the estimator where to look */}
-                {triage.length>0&&(
-                  <div style={{display:"flex",alignItems:"center",gap:"0.75rem",flexWrap:"wrap",padding:"0.75rem 1rem",marginBottom:"1.25rem",background:"#fff",borderRadius:10,border:"1px solid #F1F5F9",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-                    <div style={{display:"flex",flexDirection:"column"}}>
-                      <span style={{fontSize:"0.55rem",letterSpacing:"0.08em",color:"#94A3B8",textTransform:"uppercase",fontWeight:700}}>Job confidence</span>
-                      <span style={{fontSize:"1.35rem",fontWeight:800,color:jobConfidence>=85?"#15803D":jobConfidence>=65?"#B45309":"#B91C1C"}}>{jobConfidence}%</span>
+              <div style={{flex:1,overflowY:"auto",padding:"2rem"}}>
+                <div style={{maxWidth:1020,margin:"0 auto"}}>
+
+                {/* THE ANSWER, big and first: one card per material + the job total */}
+                {summaryData&&Object.keys(summaryData).length>0&&(
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(215px,1fr))",gap:"1rem",marginBottom:"1.5rem"}}>
+                    {Object.entries(summaryData).map(([cat,{net,adj,color}])=>(
+                      <div key={cat} style={{background:"#fff",borderRadius:14,border:"1px solid #EEF2F7",borderTop:"4px solid "+color,padding:"1.1rem 1.25rem",boxShadow:"0 2px 10px rgba(15,23,42,0.05)"}}>
+                        <div style={{fontSize:"0.85rem",fontWeight:700,color:"#334155",marginBottom:"0.4rem"}}>{cat}</div>
+                        <div style={{fontSize:"2.1rem",fontWeight:800,color:"#0F172A",letterSpacing:"-0.02em",lineHeight:1}}>{Math.round(net).toLocaleString()}<span style={{fontSize:"0.85rem",fontWeight:600,color:"#94A3B8",marginLeft:6}}>SF</span></div>
+                        <div style={{fontSize:"0.74rem",color:"#94A3B8",marginTop:"0.5rem"}}>with 15% waste → <b style={{color:"#475569"}}>{Math.round(adj).toLocaleString()} SF</b></div>
+                      </div>
+                    ))}
+                    <div style={{background:NAVY,borderRadius:14,padding:"1.1rem 1.25rem",boxShadow:"0 8px 24px -8px rgba(15,33,56,0.5)"}}>
+                      <div style={{fontSize:"0.85rem",fontWeight:700,color:"#7FB0E0",marginBottom:"0.4rem"}}>Job total (+15%)</div>
+                      <div style={{fontSize:"2.1rem",fontWeight:800,color:"#fff",letterSpacing:"-0.02em",lineHeight:1}}>{Math.round(grandAdj).toLocaleString()}<span style={{fontSize:"0.85rem",fontWeight:600,color:"rgba(255,255,255,0.5)",marginLeft:6}}>SF</span></div>
+                      <div style={{fontSize:"0.74rem",color:"rgba(255,255,255,0.55)",marginTop:"0.5rem"}}>{linearTotalLF>0?`+ ${Math.round(linearTotalLF).toLocaleString()} LF trim & linear`:"all materials, all pages"}</div>
                     </div>
-                    <div style={{width:1,height:34,background:"#E2E8F0"}}/>
-                    <div style={{display:"flex",gap:"0.5rem",flexWrap:"wrap",flex:1}}>
-                      {readyN>0&&<span style={{fontSize:"0.7rem",fontWeight:700,padding:"0.3rem 0.7rem",borderRadius:20,background:"#DCFCE7",color:"#15803D"}}>✓ {readyN} ready to confirm</span>}
-                      {reviewN>0&&<span style={{fontSize:"0.7rem",fontWeight:700,padding:"0.3rem 0.7rem",borderRadius:20,background:"#FEF3C7",color:"#B45309"}}>{reviewN} to review</span>}
-                      {attnN>0&&<span style={{fontSize:"0.7rem",fontWeight:700,padding:"0.3rem 0.7rem",borderRadius:20,background:"#FEE2E2",color:"#B91C1C"}}>⚠ {attnN} need attention</span>}
-                    </div>
-                    <span style={{fontSize:"0.6rem",color:"#94A3B8"}}>{attnN+reviewN===0?"All clear — spot-check & send":"Start with the flagged ones below"}</span>
                   </div>
                 )}
-                <div style={{fontSize:"0.65rem",letterSpacing:"0.1em",color:BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"1rem"}}>Breakdown by Elevation</div>
+
+                {/* Triage summary — tells the estimator where to look */}
+                {triage.length>0&&(
+                  <div style={{display:"flex",alignItems:"center",gap:"0.9rem",flexWrap:"wrap",padding:"0.85rem 1.1rem",marginBottom:"1.5rem",background:"#fff",borderRadius:12,border:"1px solid #F1F5F9",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+                    <div style={{display:"flex",flexDirection:"column"}}>
+                      <span style={{fontSize:"0.6rem",letterSpacing:"0.08em",color:"#94A3B8",textTransform:"uppercase",fontWeight:700}}>Job confidence</span>
+                      <span style={{fontSize:"1.5rem",fontWeight:800,color:jobConfidence>=85?"#15803D":jobConfidence>=65?"#B45309":"#B91C1C"}}>{jobConfidence}%</span>
+                    </div>
+                    <div style={{width:1,height:38,background:"#E2E8F0"}}/>
+                    <div style={{display:"flex",gap:"0.5rem",flexWrap:"wrap",flex:1}}>
+                      {readyN>0&&<span style={{fontSize:"0.78rem",fontWeight:700,padding:"0.35rem 0.8rem",borderRadius:20,background:"#DCFCE7",color:"#15803D"}}>✓ {readyN} ready to confirm</span>}
+                      {reviewN>0&&<span style={{fontSize:"0.78rem",fontWeight:700,padding:"0.35rem 0.8rem",borderRadius:20,background:"#FEF3C7",color:"#B45309"}}>{reviewN} to review</span>}
+                      {attnN>0&&<span style={{fontSize:"0.78rem",fontWeight:700,padding:"0.35rem 0.8rem",borderRadius:20,background:"#FEE2E2",color:"#B91C1C"}}>⚠ {attnN} need attention</span>}
+                    </div>
+                    <span style={{fontSize:"0.7rem",color:"#94A3B8"}}>{attnN+reviewN===0?"All clear — spot-check & send":"Start with the flagged ones below"}</span>
+                  </div>
+                )}
+
+                <div style={{fontSize:"0.72rem",letterSpacing:"0.1em",color:BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"1rem"}}>By elevation</div>
                 {results.takeoffData.map((elev,i)=>{
                   const total=(elev.zones||[]).reduce((s,z)=>s+(z.netArea||0),0);
                   if(total===0)return null;
                   const conf=elevConfidence(elev);
                   const cs=STATUS_STYLE[conf.status];
                   const dispScale=elev.verifiedScale||elev.scale;
-                  const scaleSub=elev.scaleSource==="claude_vision"?"read from drawing":elev.scaleSource==="easyocr"?"OCR · title block":elev.scaleSource==="default"?"default — verify!":null;
-                  const dims=fmtDims(elev.buildingDimensions);
                   const overshoot=elev.expectedFacadeSF&&total>elev.expectedFacadeSF*1.4;
-                  const hasIntel=dispScale||dims||elev.expectedFacadeSF||elev.scheduleOpeningSF>0||overshoot;
-                  return <div key={i} style={{background:"#fff",borderRadius:10,boxShadow:"0 1px 4px rgba(0,0,0,0.07)",border:"1px solid #F1F5F9",marginBottom:"1rem",overflow:"hidden"}}>
-                    <div style={{padding:"0.65rem 1rem",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"1px solid #F1F5F9",background:"#FAFBFC"}}>
-                      <div style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
-                        <span style={{fontSize:"0.85rem",fontWeight:700,color:"#0F172A"}}>{elev.title}</span>
-                        <span title={conf.reasons.join(" · ")} style={{fontSize:"0.56rem",fontWeight:700,padding:"0.12rem 0.45rem",borderRadius:20,background:cs.bg,color:cs.fg,whiteSpace:"nowrap"}}>{cs.label} {conf.score}%</span>
+                  const warnLines=[
+                    ...(conf.status!=="ready"&&conf.reasons.length?["Check: "+conf.reasons.join(" · ")]:[]),
+                    ...(elev.scaleSource==="default"?["Default scale used — calibrate before trusting SF"]:[]),
+                    ...(overshoot?["Panel SF is bigger than the building face — possible scale error"]:[]),
+                    ...(elev.flags||[]).filter(Boolean),
+                  ];
+                  return <div key={i} style={{background:"#fff",borderRadius:14,boxShadow:"0 2px 10px rgba(15,23,42,0.05)",border:"1px solid #F1F5F9",marginBottom:"1.25rem",overflow:"hidden"}}>
+                    <div style={{padding:"0.9rem 1.25rem",display:"flex",justifyContent:"space-between",alignItems:"center",gap:"0.75rem",borderBottom:"1px solid #F1F5F9",background:"#FAFBFC"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:"0.6rem",minWidth:0}}>
+                        <span style={{fontSize:"1.05rem",fontWeight:800,color:"#0F172A",letterSpacing:"-0.01em"}}>{elev.title}</span>
+                        <span title={conf.reasons.join(" · ")} style={{fontSize:"0.62rem",fontWeight:700,padding:"0.18rem 0.55rem",borderRadius:20,background:cs.bg,color:cs.fg,whiteSpace:"nowrap"}}>{cs.label}</span>
+                        {dispScale&&<span style={{fontSize:"0.66rem",color:"#94A3B8",whiteSpace:"nowrap"}}>{elev.sheetRef?elev.sheetRef+" · ":""}scale {dispScale}</span>}
                       </div>
-                      <span style={{fontSize:"0.65rem",color:"#94A3B8"}}>{elev.sheetRef} · {Math.round(total).toLocaleString()} SF</span>
+                      <span style={{fontSize:"1.15rem",fontWeight:800,color:BLUE,whiteSpace:"nowrap"}}>{Math.round(total).toLocaleString()} <span style={{fontSize:"0.7rem",fontWeight:600,color:"#94A3B8"}}>SF</span></span>
                     </div>
-                    {conf.status!=="ready"&&conf.reasons.length>0&&<div style={{padding:"0.4rem 1rem",fontSize:"0.62rem",color:cs.fg,background:cs.bg+"55",borderBottom:"1px solid #F1F5F9"}}>Check: {conf.reasons.join(" · ")}</div>}
-                    {hasIntel&&<div style={{display:"flex",flexWrap:"wrap",gap:"0.5rem",padding:"0.6rem 1rem",background:"#F8FAFC",borderBottom:"1px solid #F1F5F9"}}>
-                      {dispScale&&<InfoChip label="Scale" value={dispScale} sub={scaleSub} warn={elev.scaleSource==="default"}/>}
-                      {dims&&<InfoChip label="Building" value={dims}/>}
-                      {elev.expectedFacadeSF&&<InfoChip label="Gross face" value={Math.round(elev.expectedFacadeSF).toLocaleString()+" SF"}/>}
-                      {elev.scheduleOpeningSF>0&&<InfoChip label="Openings · schedule" value={Math.round(elev.scheduleOpeningSF).toLocaleString()+" SF"}/>}
-                      {overshoot&&<InfoChip label="⚠ Check scale" value="Panel SF > building face" sub="possible scale error" warn={true}/>}
-                    </div>}
-                    <table style={{width:"100%",borderCollapse:"collapse"}}>
-                      <thead><tr style={{background:"#F8FAFC"}}>{["ID","Material","Category","Gross","Openings","Net SF","Adj +15%"].map(h=>(
-                        <th key={h} style={{padding:"0.4rem 0.75rem",textAlign:["Gross","Openings","Net SF","Adj +15%"].includes(h)?"right":"left",fontSize:"0.6rem",fontWeight:600,color:"#94A3B8",textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1px solid #F1F5F9"}}>{h}</th>
-                      ))}</tr></thead>
-                      <tbody>{(elev.zones||[]).map((z,zi)=>(
-                        <tr key={zi} style={{borderBottom:"1px solid #F8FAFC"}} onMouseEnter={e=>e.currentTarget.style.background="#FAFBFC"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                          <td style={{padding:"0.45rem 0.75rem"}}><div style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:8,height:8,borderRadius:2,background:MAT_COLORS[z.category]||"#9CA3AF"}}/><span style={{fontWeight:700,color:BLUE,fontSize:"0.72rem"}}>{z.materialId||"—"}</span></div></td>
-                          <td style={{padding:"0.45rem 0.75rem",fontSize:"0.72rem",color:"#374151",fontWeight:500}}>{z.materialName}</td>
-                          <td style={{padding:"0.45rem 0.75rem",fontSize:"0.7rem",color:"#9CA3AF"}}>{z.category}</td>
-                          <td style={{padding:"0.45rem 0.75rem",textAlign:"right",fontSize:"0.72rem",color:"#64748B"}}>{Math.round(z.grossArea||0).toLocaleString()}</td>
-                          <td style={{padding:"0.45rem 0.75rem",textAlign:"right",fontSize:"0.72rem",color:"#9CA3AF"}}>({Math.round(z.totalOpeningArea||0).toLocaleString()})</td>
-                          <td style={{padding:"0.45rem 0.75rem",textAlign:"right",fontSize:"0.75rem",fontWeight:600,color:"#374151"}}>{Math.round(z.netArea||0).toLocaleString()}</td>
-                          <td style={{padding:"0.45rem 0.75rem",textAlign:"right",fontSize:"0.78rem",fontWeight:700,color:BLUE}}>{Math.round((z.netArea||0)*1.15).toLocaleString()}</td>
-                        </tr>
-                      ))}</tbody>
-                    </table>
-                    {(elev.flags||[]).filter(Boolean).length>0&&<div style={{padding:"0.4rem 0.75rem",fontSize:"0.65rem",color:"#92400E",background:"#FFFBEB",borderTop:"1px solid #FEF3C7"}}>⚠ {elev.flags.filter(Boolean).join(" · ")}</div>}
+                    {warnLines.length>0&&<div style={{padding:"0.55rem 1.25rem",fontSize:"0.74rem",color:"#92400E",background:"#FFFBEB",borderBottom:"1px solid #FEF3C7",lineHeight:1.5}}>⚠ {warnLines.join(" · ")}</div>}
+                    {(elev.zones||[]).map((z,zi)=>(
+                      <div key={zi} style={{display:"flex",alignItems:"center",gap:"0.8rem",padding:"0.85rem 1.25rem",borderTop:zi?"1px solid #F5F8FB":"none"}}>
+                        <div style={{width:13,height:13,borderRadius:4,background:MAT_COLORS[z.category]||"#9CA3AF",flexShrink:0}}/>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:"0.95rem",fontWeight:600,color:"#1E293B"}}>{z.materialName}{z.materialId?<span style={{fontSize:"0.7rem",fontWeight:700,color:BLUE,marginLeft:8}}>{z.materialId}</span>:null}</div>
+                          {(z.totalOpeningArea||0)>0&&<div style={{fontSize:"0.7rem",color:"#94A3B8",marginTop:2}}>{Math.round(z.grossArea||0).toLocaleString()} gross − {Math.round(z.totalOpeningArea||0).toLocaleString()} openings</div>}
+                        </div>
+                        <div style={{textAlign:"right",whiteSpace:"nowrap"}}>
+                          <div style={{fontSize:"1.15rem",fontWeight:800,color:"#0F172A",letterSpacing:"-0.01em"}}>{Math.round(z.netArea||0).toLocaleString()} <span style={{fontSize:"0.68rem",fontWeight:600,color:"#94A3B8"}}>SF</span></div>
+                          <div style={{fontSize:"0.68rem",color:"#94A3B8"}}>+15% → {Math.round((z.netArea||0)*1.15).toLocaleString()}</div>
+                        </div>
+                      </div>
+                    ))}
                   </div>;
                 })}
+                </div>
               </div>
             )}
             {viewMode==="pricing"&&(
