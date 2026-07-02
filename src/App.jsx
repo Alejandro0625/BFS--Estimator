@@ -1278,11 +1278,23 @@ export default function BFSEstimator() {
     const s = document.createElement("style");
     s.id = "bfs-ui-polish";
     s.textContent = `
-      html, body, #root { font-family: 'Inter', system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; letter-spacing: -0.012em; }
+      html, body, #root { font-family: 'Inter', system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; letter-spacing: -0.012em; font-variant-numeric: tabular-nums; }
       h1,h2,h3 { letter-spacing: -0.03em; }
-      button, [role=button], a { transition: transform .13s cubic-bezier(.2,.8,.2,1), box-shadow .2s ease, background .2s ease, border-color .2s ease, color .2s ease, opacity .2s ease; }
-      button:not(:disabled):hover, [role=button]:hover { transform: translateY(-1px); }
-      button:not(:disabled):active, [role=button]:active { transform: translateY(0) scale(.98); }
+      /* signature: a slow beam of light traveling the facade line under the header */
+      header { position: relative; }
+      header::after { content:""; position:absolute; left:0; right:0; bottom:-2px; height:2px; pointer-events:none;
+        background: linear-gradient(90deg, transparent 0%, rgba(90,146,210,.9) 30%, #AFCDEE 50%, rgba(90,146,210,.9) 70%, transparent 100%);
+        background-size: 220% 100%; animation: bfsShimmer 7s linear infinite; opacity:.85; }
+      header img { transition: filter .3s ease, transform .3s ease; }
+      header img:hover { filter: drop-shadow(0 0 14px rgba(127,176,224,.55)); transform: scale(1.03); }
+      button, [role=button], a { transition: transform .13s cubic-bezier(.2,.8,.2,1), box-shadow .2s ease, background .2s ease, border-color .2s ease, color .2s ease, opacity .2s ease, filter .2s ease; }
+      button:not(:disabled):hover, [role=button]:hover { transform: translateY(-1px); box-shadow: 0 4px 14px -4px rgba(15,33,56,.35); }
+      button:not(:disabled):active, [role=button]:active { transform: translateY(0) scale(.98); box-shadow: none; }
+      /* the drawing view feels alive: selections/hatches ease in, handles breathe */
+      svg polygon, svg rect, svg circle { transition: fill-opacity .18s ease, stroke-width .15s ease, stroke .18s ease; }
+      svg circle[style*="grab"]:hover { stroke-width: 3px; }
+      #root > div { animation: bfsFadeUp .45s cubic-bezier(.2,.8,.2,1); }
+      @media (prefers-reduced-motion: reduce) { *, ::after { animation: none !important; transition: none !important; } }
       input, textarea, select { transition: border-color .2s ease, box-shadow .2s ease, background .2s ease; }
       input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(74,134,200,.35); }
       ::selection { background: rgba(74,134,200,.30); color: inherit; }
