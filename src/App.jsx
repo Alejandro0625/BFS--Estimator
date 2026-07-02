@@ -1348,7 +1348,8 @@ export default function BFSEstimator() {
   },{});
   const hasReviewed = Object.keys(reviewedSummary).length>0;
   const pricingSource = hasReviewed ? reviewedSummary : (summaryData||{});
-  const priceRows = Object.entries(pricingSource).map(([cat,{net}])=>{
+  const priceRows = Object.entries(pricingSource).map(([cat,{net:net0}])=>{
+    const net = (pricing.sfOverride && pricing.sfOverride[cat]!=null) ? pricing.sfOverride[cat] : net0;  // editable per job
     const rate = pricing.rates[cat]!=null ? pricing.rates[cat] : (DEFAULT_RATES[cat]??DEFAULT_RATES.Other);
     const adjSF = net*(1+pricing.wastePct/100);
     return { cat, net, adjSF, rate, cost:adjSF*rate };
@@ -1376,11 +1377,20 @@ export default function BFSEstimator() {
   const lfRateOf = m => (pricing.lfRates && pricing.lfRates[m]!=null) ? pricing.lfRates[m] : 12;
   const lfRows = linearRollup.map(it=>({...it, rate:lfRateOf(it.material), cost: (it.lf||0)*lfRateOf(it.material)}));
   const lfSubtotal = lfRows.reduce((s,r)=>s+r.cost,0);
-  const budgetSubtotal = costSubtotal + lfSubtotal;
+  const setSf=(cat,v)=>setPricing(p=>({...p,sfOverride:{...(p.sfOverride||{}),[cat]:v}}));   // override a material's SF for THIS job
+  const customLines = pricing.customLines || [];
+  const addCustomLine=()=>setPricing(p=>({...p,customLines:[...(p.customLines||[]),{id:Date.now(),name:"",qty:1,rate:0}]}));
+  const updCustomLine=(id,k,v)=>setPricing(p=>({...p,customLines:(p.customLines||[]).map(l=>l.id===id?{...l,[k]:v}:l)}));
+  const delCustomLine=id=>setPricing(p=>({...p,customLines:(p.customLines||[]).filter(l=>l.id!==id)}));
+  const customSubtotal = customLines.reduce((s,l)=>s+(l.qty||0)*(l.rate||0),0);
+  const budgetSubtotal = costSubtotal + lfSubtotal + customSubtotal;
   const budgetTotal = budgetSubtotal*(1+pricing.marginPct/100);
   const exportBudgetExcel=()=>{
     if(!results) return;
-    const mats=[...priceRows.map(r=>({name:r.cat,sf:r.net,rate:r.rate})),...lfRows.map(r=>({name:r.material+" (per LF)",sf:r.lf,rate:r.rate}))];
+    const w=1+(pricing.wastePct||0)/100;   // buildExcel applies waste to every qty; pre-divide LF/custom so only material SF gets waste
+    const mats=[...priceRows.map(r=>({name:r.cat,sf:r.net,rate:r.rate})),
+                ...lfRows.map(r=>({name:r.material+" (per LF)",sf:(r.lf||0)/w,rate:r.rate})),
+                ...customLines.filter(l=>(l.name||l.rate)).map(l=>({name:l.name||"Line item",sf:(l.qty||0)/w,rate:l.rate||0}))];
     const wb=buildExcel(results.projName||"Project",mats,{wastePct:pricing.wastePct,marginPct:pricing.marginPct});
     XLSX.writeFile(wb,"BFS_Budget_"+(results.projName||"Project").replace(/\s+/g,"_")+".xlsx");
   };
@@ -1468,7 +1478,7 @@ export default function BFSEstimator() {
                 {priceRows.map(r=>(
                   <div key={r.cat} style={{display:"grid",gridTemplateColumns:"1.7fr 0.9fr 0.9fr 1fr 1fr",padding:"0.5rem 1rem",borderTop:"1px solid #F1F5F9",alignItems:"center",fontSize:"0.76rem"}}>
                     <div style={{fontWeight:600,color:"#0F172A"}}>{r.cat}</div>
-                    <div style={{textAlign:"right",color:"#64748B"}}>{Math.round(r.net).toLocaleString()}</div>
+                    <div style={{textAlign:"right"}}><input type="number" value={Math.round(r.net)} onChange={e=>setSf(r.cat,parseFloat(e.target.value)||0)} style={{width:64,textAlign:"right",padding:"0.22rem 0.35rem",borderRadius:5,border:"1px solid #E2E8F0",fontSize:"0.74rem",fontFamily:"inherit",color:"#334155"}}/></div>
                     <div style={{textAlign:"right",color:"#94A3B8"}}>{Math.round(r.adjSF).toLocaleString()}</div>
                     <div style={{textAlign:"right",whiteSpace:"nowrap"}}><span style={{color:"#94A3B8"}}>$</span><input type="number" value={r.rate} onChange={e=>setRate(r.cat,parseFloat(e.target.value)||0)} style={{width:60,textAlign:"right",padding:"0.22rem 0.35rem",borderRadius:5,border:"1px solid #CBD5E1",fontSize:"0.74rem",fontFamily:"inherit"}}/></div>
                     <div style={{textAlign:"right",fontWeight:700,color:"#0F172A"}}>${Math.round(r.cost).toLocaleString()}</div>
@@ -1489,6 +1499,21 @@ export default function BFSEstimator() {
                   </div>
                 ))}
               </div>}
+              <div style={{background:"#fff",borderRadius:12,border:"1px solid #EEF2F7",overflow:"hidden",marginBottom:"1rem"}}>
+                <div style={{display:"grid",gridTemplateColumns:"1.7fr 0.9fr 0.9fr 1fr 1fr",padding:"0.6rem 1rem",background:"#F8FAFC",fontSize:"0.58rem",fontWeight:700,color:"#64748B",textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                  <div>Custom / adders</div><div style={{textAlign:"right"}}>Qty</div><div/><div style={{textAlign:"right"}}>$ / unit</div><div style={{textAlign:"right"}}>Cost</div>
+                </div>
+                {customLines.map(l=>(
+                  <div key={l.id} style={{display:"grid",gridTemplateColumns:"1.7fr 0.9fr 0.9fr 1fr 1fr",padding:"0.45rem 1rem",borderTop:"1px solid #F1F5F9",alignItems:"center",fontSize:"0.76rem",gap:"0.3rem"}}>
+                    <input value={l.name} onChange={e=>updCustomLine(l.id,"name",e.target.value)} placeholder="e.g. Scaffolding, mobilization…" style={{padding:"0.22rem 0.4rem",borderRadius:5,border:"1px solid #E2E8F0",fontSize:"0.73rem",fontFamily:"inherit",minWidth:0}}/>
+                    <input type="number" value={l.qty} onChange={e=>updCustomLine(l.id,"qty",parseFloat(e.target.value)||0)} style={{textAlign:"right",padding:"0.22rem 0.35rem",borderRadius:5,border:"1px solid #E2E8F0",fontSize:"0.74rem",fontFamily:"inherit",minWidth:0}}/>
+                    <div/>
+                    <div style={{textAlign:"right",whiteSpace:"nowrap"}}><span style={{color:"#94A3B8"}}>$</span><input type="number" value={l.rate} onChange={e=>updCustomLine(l.id,"rate",parseFloat(e.target.value)||0)} style={{width:58,textAlign:"right",padding:"0.22rem 0.35rem",borderRadius:5,border:"1px solid #E2E8F0",fontSize:"0.74rem",fontFamily:"inherit"}}/></div>
+                    <div style={{textAlign:"right",fontWeight:700,color:"#0F172A",display:"flex",justifyContent:"flex-end",alignItems:"center",gap:"0.4rem"}}>${Math.round((l.qty||0)*(l.rate||0)).toLocaleString()}<span onClick={()=>delCustomLine(l.id)} title="remove" style={{cursor:"pointer",color:"#F87171",fontWeight:700}}>×</span></div>
+                  </div>
+                ))}
+                <div onClick={addCustomLine} style={{padding:"0.5rem 1rem",borderTop:"1px solid #F1F5F9",fontSize:"0.73rem",color:BLUE,fontWeight:700,cursor:"pointer"}}>+ Add line item (lump sum, adder, extra scope…)</div>
+              </div>
               <div style={{display:"flex",gap:"0.75rem",marginBottom:"1rem"}}>
                 {[["Waste %","wastePct"],["Margin %","marginPct"]].map(([lab,key])=>(
                   <div key={key} style={{flex:1,background:"#fff",borderRadius:10,border:"1px solid #EEF2F7",padding:"0.6rem 0.85rem",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
@@ -1498,7 +1523,7 @@ export default function BFSEstimator() {
                 ))}
               </div>
               <div style={{background:NAVY,borderRadius:12,padding:"1.15rem 1.35rem",color:"#fff"}}>
-                {[["Materials",costSubtotal],...(lfSubtotal>0?[["Trim / linear",lfSubtotal]]:[]),["Subtotal",budgetSubtotal],["Margin ("+pricing.marginPct+"%)",budgetSubtotal*pricing.marginPct/100]].map(([l,v])=>(
+                {[["Materials",costSubtotal],...(lfSubtotal>0?[["Trim / linear",lfSubtotal]]:[]),...(customSubtotal>0?[["Custom / adders",customSubtotal]]:[]),["Subtotal",budgetSubtotal],["Margin ("+pricing.marginPct+"%)",budgetSubtotal*pricing.marginPct/100]].map(([l,v])=>(
                   <div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:"0.76rem",color:"rgba(255,255,255,0.7)",marginBottom:"0.35rem"}}><span>{l}</span><span>${Math.round(v).toLocaleString()}</span></div>
                 ))}
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",borderTop:"1px solid rgba(255,255,255,0.12)",paddingTop:"0.6rem",marginTop:"0.4rem"}}>
