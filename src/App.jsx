@@ -1193,6 +1193,9 @@ export default function BFSEstimator() {
   const [dragOver, setDragOver] = useState(false);
   const [appTab, setAppTab] = useState("takeoff");
   const [pricing, setPricing] = useState({ rates:{}, wastePct:15, marginPct:20 });
+  // Saved rate cards (per-firm/per-job pricing you reuse) — persisted so you never re-enter rates
+  const [rateCards, setRateCards] = useState(()=>{ try{ return JSON.parse(localStorage.getItem("bfs_rate_cards"))||{}; }catch{ return {}; } });
+  const [rateCardName, setRateCardName] = useState("");
   const [assignments, setAssignments] = useState({});
   const [groupRename, setGroupRename] = useState({});   // {backendGroupName: estimator name} — propagates across all pages of a job
 
@@ -1381,6 +1384,15 @@ export default function BFSEstimator() {
     const wb=buildExcel(results.projName||"Project",mats,{wastePct:pricing.wastePct,marginPct:pricing.marginPct});
     XLSX.writeFile(wb,"BFS_Budget_"+(results.projName||"Project").replace(/\s+/g,"_")+".xlsx");
   };
+  // ── Rate cards: save the rates you set, reuse them on the next job (per firm/job) ──
+  const persistRateCards=rc=>{ setRateCards(rc); try{ localStorage.setItem("bfs_rate_cards",JSON.stringify(rc)); }catch{} };
+  const saveRateCard=()=>{
+    const nm=((rateCardName||results?.projName||"My rates").trim()).slice(0,32)||"My rates";
+    persistRateCards({...rateCards,[nm]:{ rates:{...pricing.rates}, wastePct:pricing.wastePct, marginPct:pricing.marginPct, lfRates:{...(pricing.lfRates||{})}, savedAt:Date.now() }});
+    setRateCardName(nm);
+  };
+  const loadRateCard=nm=>{ const c=rateCards[nm]; if(!c)return; setPricing(p=>({...p, rates:{...c.rates}, wastePct:c.wastePct, marginPct:c.marginPct, lfRates:{...(c.lfRates||{})} })); setRateCardName(nm); };
+  const deleteRateCard=nm=>{ const rc={...rateCards}; delete rc[nm]; persistRateCards(rc); if(rateCardName===nm)setRateCardName(""); };
   const linearTotalLF = linearRollup.reduce((s,r)=>s+r.lf,0);
   const triage = reviewElevs.map(e=>({ ...elevConfidence(e) }));
   const readyN = triage.filter(t=>t.status==="ready").length;
@@ -1436,6 +1448,19 @@ export default function BFSEstimator() {
             {(!results||!priceRows.length)?(
               <div style={{padding:"2.5rem",textAlign:"center",color:"#94A3B8",background:"#fff",borderRadius:12,border:"1px solid #EEF2F7",fontSize:"0.85rem"}}>Run a takeoff and tag your materials first — then set your prices here.</div>
             ):(<>
+              <div style={{display:"flex",gap:"0.4rem",alignItems:"center",flexWrap:"wrap",marginBottom:"1rem",padding:"0.6rem 0.8rem",background:"#fff",borderRadius:10,border:"1px solid #EEF2F7"}}>
+                <span style={{fontSize:"0.64rem",color:"#64748B",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em"}}>Rate cards</span>
+                {Object.keys(rateCards).length===0&&<span style={{fontSize:"0.66rem",color:"#94A3B8"}}>none yet — set your rates below and save</span>}
+                {Object.keys(rateCards).map(nm=>(
+                  <span key={nm} style={{display:"inline-flex",alignItems:"center",gap:"0.35rem",padding:"0.25rem 0.55rem",borderRadius:16,fontSize:"0.66rem",fontWeight:600,background:rateCardName===nm?BLUE:"#F1F5F9",color:rateCardName===nm?"#fff":"#475569",border:"1px solid "+(rateCardName===nm?BLUE:"#E2E8F0")}}>
+                    <span onClick={()=>loadRateCard(nm)} style={{cursor:"pointer"}}>{nm}</span>
+                    <span onClick={()=>deleteRateCard(nm)} style={{cursor:"pointer",opacity:0.55}} title="delete">×</span>
+                  </span>
+                ))}
+                <div style={{flex:1,minWidth:8}}/>
+                <input value={rateCardName} onChange={e=>setRateCardName(e.target.value)} placeholder="name (e.g. Windover)" style={{width:132,padding:"0.28rem 0.5rem",borderRadius:5,border:"1px solid #CBD5E1",fontSize:"0.68rem",fontFamily:"inherit"}}/>
+                <button onClick={saveRateCard} style={{padding:"0.3rem 0.7rem",borderRadius:6,border:"none",background:"linear-gradient(180deg,#5A92D2,#3F79BC)",color:"#fff",fontSize:"0.68rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>💾 Save rates</button>
+              </div>
               <div style={{background:"#fff",borderRadius:12,border:"1px solid #EEF2F7",overflow:"hidden",marginBottom:"1rem"}}>
                 <div style={{display:"grid",gridTemplateColumns:"1.7fr 0.9fr 0.9fr 1fr 1fr",padding:"0.6rem 1rem",background:"#F8FAFC",fontSize:"0.58rem",fontWeight:700,color:"#64748B",textTransform:"uppercase",letterSpacing:"0.06em"}}>
                   <div>Material</div><div style={{textAlign:"right"}}>Net SF</div><div style={{textAlign:"right"}}>+Waste</div><div style={{textAlign:"right"}}>Rate $/SF</div><div style={{textAlign:"right"}}>Cost</div>
