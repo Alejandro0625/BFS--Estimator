@@ -1,4 +1,4 @@
-// BFS AI Panel Estimator — UI build v2 (bigger header, cross-tab gradient design)
+// BFS AI Estimator — UI build v2 (bigger header, cross-tab gradient design)
 import { useState, useRef, useEffect, useCallback } from "react";
 import * as XLSX from "xlsx";
 import { Stage, Layer, Line, Circle, Image as KImage } from "react-konva";
@@ -1404,7 +1404,7 @@ export default function BFSEstimator() {
           <div style={{width:1,height:54,background:"rgba(255,255,255,0.13)"}}/>
           <div>
             <div style={{fontSize:"0.64rem",letterSpacing:"0.27em",color:"rgba(255,255,255,0.46)",textTransform:"uppercase",fontWeight:600,marginBottom:2}}>Boston Facade Systems</div>
-            <div style={{fontSize:"1.4rem",fontWeight:600,color:"#fff",letterSpacing:"-0.025em",fontFamily:"'Space Grotesk',sans-serif"}}>AI Panel Estimator</div>
+            <div style={{fontSize:"1.4rem",fontWeight:600,color:"#fff",letterSpacing:"-0.025em",fontFamily:"'Space Grotesk',sans-serif"}}>AI Estimator</div>
           </div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:"1rem"}}>
@@ -1505,7 +1505,7 @@ export default function BFSEstimator() {
             {/* Hero text */}
             <div style={{textAlign:"center"}}>
               <div style={{fontSize:"0.68rem",letterSpacing:"0.28em",color:"#7FB0E0",textTransform:"uppercase",fontWeight:700,marginBottom:"0.9rem"}}>Boston Facade Systems</div>
-              <h1 style={{fontSize:"2.7rem",fontWeight:700,margin:0,letterSpacing:"-0.035em",lineHeight:1.04,fontFamily:"'Space Grotesk',sans-serif",background:"linear-gradient(180deg,#ffffff 30%,#AFCDEE)",WebkitBackgroundClip:"text",backgroundClip:"text",WebkitTextFillColor:"transparent"}}>AI Panel Estimator</h1>
+              <h1 style={{fontSize:"2.7rem",fontWeight:700,margin:0,letterSpacing:"-0.035em",lineHeight:1.04,fontFamily:"'Space Grotesk',sans-serif",background:"linear-gradient(180deg,#ffffff 30%,#AFCDEE)",WebkitBackgroundClip:"text",backgroundClip:"text",WebkitTextFillColor:"transparent"}}>AI Estimator</h1>
               <p style={{fontSize:"0.95rem",color:"rgba(255,255,255,0.6)",marginTop:"0.9rem",lineHeight:1.6}}>Upload your blueprint PDF and get a full material takeoff<br/>with SF breakdown by elevation in seconds.</p>
               <div style={{display:"flex",justifyContent:"center",gap:"1.1rem",marginTop:"1rem",flexWrap:"wrap"}}>
                 {["Measured from drawing geometry","Verified scale","Bid-ready Excel"].map(t=>(
