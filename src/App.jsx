@@ -151,7 +151,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   const [imgNaturalSize, setImgNaturalSize] = useState({ w:1, h:1 });
   const [calibMode, setCalibMode] = useState(false);
   const [calibPts, setCalibPts] = useState([]);
-  const [calibFt, setCalibFt] = useState(null);
+  const [pageScales, setPageScales] = useState({});   // scale is PER PAGE (sheets mix scales); calibFt derives from it below
   const [realDist, setRealDist] = useState("");
   // Bucket-fill (coloring-book) assist — click a wall → exact SF from vector geometry. Additive/opt-in.
   const [bucketMode, setBucketMode] = useState(false);
@@ -170,6 +170,9 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   const elevations = results.takeoffData.filter(e => e.pageNumber);
   const elev = elevations[elevIdx];
   const pageNum = elev?.pageNumber;
+  // this page's scale: one-click chip or 2-point calibrate sets it; same recompute path as before
+  const calibFt = pageScales[pageNum] ?? null;
+  const setCalibFt = v => setPageScales(prev=>{const n={...prev}; if(v==null) delete n[pageNum]; else n[pageNum]=v; return n;});
 
   useEffect(() => {
     if (!pageNum || !results.jobId) return;
@@ -184,7 +187,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
 
   // NEW JOB → clear all per-job marks (bucket fills, group picks). Without this, shapes from the
   // previous drawing would silently flow into the next job's totals/Excel — a money bug.
-  useEffect(()=>{ setBucketShapes([]); setSelGroups({}); setPreviewGroups([]); setSnapMsg(""); }, [results.jobId]);
+  useEffect(()=>{ setBucketShapes([]); setSelGroups({}); setPreviewGroups([]); setSnapMsg(""); setPageScales({}); }, [results.jobId]);
   // Pull shared learning from the server into local memory (so repeats are pre-identified)
   useEffect(()=>{
     fetch(BACKEND+"/recall").then(r=>r.ok?r.json():null).then(d=>{
@@ -371,6 +374,13 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
             <span>Real distance (ft):</span>
             <input value={realDist} onChange={e=>setRealDist(e.target.value)} onKeyDown={e=>e.key==="Enter"&&applyCalibration()} placeholder="e.g. 20" style={{width:64,padding:"0.25rem 0.4rem",borderRadius:5,border:"1px solid #2D5280",background:NAVY,color:"#E2E8F0",fontSize:"0.65rem",fontFamily:"inherit"}}/>
             <button onClick={applyCalibration} style={{fontSize:"0.65rem",padding:"0.25rem 0.6rem",borderRadius:5,border:"none",background:"linear-gradient(180deg,#5A92D2,#3F79BC)",color:"#fff",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>Apply</button>
+          </div>}
+          {!calibMode&&<div style={{display:"flex",alignItems:"center",gap:"0.2rem"}}>
+            <span style={{fontSize:"0.6rem",fontWeight:700,color:(elev?.scaleSource==="default"||(!elev?.verifiedScale&&!elev?.scale))&&!calibFt?"#FBBF24":"#64748B"}}>{(elev?.scaleSource==="default"||(!elev?.verifiedScale&&!elev?.scale))&&!calibFt?"⚠ set scale:":"scale:"}</span>
+            {[["1/16",16],["3/32",32/3],["1/8",8],["3/16",16/3],["1/4",4],["3/8",8/3],["1/2",2],["1in",1]].map(([lab,v])=>{
+              const on=Math.abs((effFtPerInch||0)-v)<0.02;
+              return <button key={lab} onClick={()=>setCalibFt(on?null:v)} title={lab.replace("in","\"")+'"=1\'-0" — sets this page\'s scale'} style={{fontSize:"0.6rem",padding:"0.22rem 0.4rem",borderRadius:5,border:"1px solid "+(on?BLUE:"#2D5280"),background:on?BLUE:NAVY_LT,color:on?"#fff":"#94A3B8",cursor:"pointer",fontFamily:"inherit",fontWeight:on?700:500}}>{lab}</button>;
+            })}
           </div>}
           <button onClick={()=>{setBucketMode(m=>!m);setCornerMode(false);setCornerPts([]);setSnapMsg("");setCalibMode(false);}} style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid "+(bucketMode?"#10B981":"#2D5280"),background:bucketMode?"#064E3B":NAVY_LT,color:bucketMode?"#6EE7B7":"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>🪣 {bucketMode?"Bucket ON — click a wall":"Bucket fill"}</button>
           {bucketMode&&cornerMode&&<div style={{display:"flex",alignItems:"center",gap:"0.35rem"}}>
