@@ -283,13 +283,35 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     return { x:p.x/pageDims.width, y:p.y/pageDims.height };
   };
   const handleSvgClick=evt=>{
+    if(suppressClickRef.current){ suppressClickRef.current=false; return; }   // that click was a vertex drag
     if(calibMode){ const p=getSvgPoint(evt); if(p) setCalibPts(prev=>prev.length>=2?[p]:[...prev,p]); return; }
     if(!bucketMode||snapBusy) return;
     const p=getSvgPoint(evt); if(!p) return;
     if(cornerMode){ setCornerPts(prev=>[...prev,p]); return; }
     doBucket(p);
   };
-  const addBucketShape=(points,area_sf,extra={})=>setBucketShapes(prev=>[...prev,{id:Date.now(),page:pageNum,points,area_sf,material:"",...extra}]);
+  const addBucketShape=(points,area_sf,extra={})=>{
+    // sfScale = the shape's own implied ft/in (from the backend's exact SF), so vertex edits recompute
+    // with the SAME scale the number was born with — Bluebeam-style: drag a corner, SF follows exactly.
+    let sfScale=null;
+    if(extra.gross_sf){ const a72=polyAreaSF(points,72,pageDims.width,pageDims.height); if(a72>0) sfScale=72*Math.sqrt(extra.gross_sf/a72); }
+    setBucketShapes(prev=>[...prev,{id:Date.now()+Math.random(),page:pageNum,points,area_sf,material:"",sfScale,...extra}]);
+  };
+  const dragRef=useRef(null);           // {sid, vi} while a vertex is being dragged
+  const suppressClickRef=useRef(false); // swallow the click that follows a handle drag
+  const [editShape,setEditShape]=useState(null);
+  const handleSvgMove=e=>{
+    const d=dragRef.current; if(!d) return;
+    const p=getSvgPoint(e); if(!p) return;
+    setBucketShapes(prev=>prev.map(sh=>{
+      if(sh.id!==d.sid) return sh;
+      const pts=sh.points.map((pt,ix)=>ix===d.vi?[Math.min(Math.max(p.x,0),1),Math.min(Math.max(p.y,0),1)]:pt);
+      if(!sh.sfScale) return {...sh, points:pts};
+      const gross=polyAreaSF(pts,sh.sfScale,pageDims.width,pageDims.height);
+      return {...sh, points:pts, gross_sf:Math.round(gross*10)/10, area_sf:Math.round(Math.max(0,gross-(sh.opening_sf||0))*10)/10};
+    }));
+  };
+  const endDrag=()=>{ if(dragRef.current){ dragRef.current=null; suppressClickRef.current=true; } };
   // Veto a deducted opening: add its SF back and drop its outline (never a silent deduction)
   const vetoOpening=(shapeId,idx)=>setBucketShapes(prev=>prev.map(s=>{
     if(s.id!==shapeId||!s.openings) return s;
@@ -408,7 +430,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
         {!pageImage?<div style={{color:"#475569",fontSize:"0.8rem",marginTop:"4rem"}}>Loading elevation...</div>:
           <div style={{position:"relative",display:"inline-block",maxWidth:"100%"}}>
             <img ref={imgRef} src={pageImage} alt={elev?.title} onLoad={e=>{setImgNaturalSize({w:e.target.naturalWidth,h:e.target.naturalHeight});setImgLoaded(true);}} style={{display:"block",maxWidth:"100%",maxHeight:"calc(100vh - 180px)",objectFit:"contain",borderRadius:6,border:"1px solid "+NAVY_LT}}/>
-            {imgLoaded&&<svg ref={svgRef} onClick={handleSvgClick} viewBox={`0 0 ${pageDims.width} ${pageDims.height}`} style={{position:"absolute",top:0,left:0,width:svgW,height:svgH,overflow:"visible",cursor:(calibMode||bucketMode)?"crosshair":"default"}}>
+            {imgLoaded&&<svg ref={svgRef} onClick={handleSvgClick} onMouseMove={handleSvgMove} onMouseUp={endDrag} onMouseLeave={endDrag} viewBox={`0 0 ${pageDims.width} ${pageDims.height}`} style={{position:"absolute",top:0,left:0,width:svgW,height:svgH,overflow:"visible",cursor:(calibMode||bucketMode)?"crosshair":"default"}}>
               {displayZones.map(zone=>{
                 const a=getAssignment(zone.id);
                 let color="#94A3B8";
@@ -428,7 +450,8 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
               {calibPts.length===2&&<line x1={calibPts[0].x*pageDims.width} y1={calibPts[0].y*pageDims.height} x2={calibPts[1].x*pageDims.width} y2={calibPts[1].y*pageDims.height} stroke="#EF4444" strokeWidth={pageDims.width/350} strokeDasharray={pageDims.width/90}/>}
               {calibPts.map((p,i)=><circle key={"cp"+i} cx={p.x*pageDims.width} cy={p.y*pageDims.height} r={pageDims.width/110} fill="#EF4444" stroke="#fff" strokeWidth={pageDims.width/600}/>)}
               {pageBucketShapes.map(s=>{const cx=s.points.reduce((a,p)=>a+p[0],0)/s.points.length*pageDims.width,cy=s.points.reduce((a,p)=>a+p[1],0)/s.points.length*pageDims.height;const warn=s.openings_review;return <g key={"bk"+s.id}>
-                <polygon points={toSVGPoints(s.points)} fill={warn?"#F59E0B":"#10B981"} fillOpacity={0.30} stroke={warn?"#F59E0B":"#10B981"} strokeWidth={2}/>
+                <polygon points={toSVGPoints(s.points)} fill={warn?"#F59E0B":"#10B981"} fillOpacity={editShape===s.id?0.42:0.30} stroke={editShape===s.id?"#fff":(warn?"#F59E0B":"#10B981")} strokeWidth={editShape===s.id?2.6:2} onClick={s.sfScale?(e=>{e.stopPropagation();setEditShape(editShape===s.id?null:s.id);}):undefined} style={s.sfScale?{cursor:"pointer"}:undefined}/>
+                {editShape===s.id&&s.points.map((pt,i)=><circle key={"v"+i} cx={pt[0]*pageDims.width} cy={pt[1]*pageDims.height} r={pageDims.width/150} fill="#fff" stroke="#10B981" strokeWidth={pageDims.width/500} style={{cursor:"grab"}} onMouseDown={e=>{e.stopPropagation();e.preventDefault();dragRef.current={sid:s.id,vi:i};}}/>)}
                 {(s.holes||[]).map((hp,i)=><polygon key={"h"+i} points={toSVGPoints(hp)} fill="#FFFFFF" fillOpacity={0.75} stroke="#64748B" strokeWidth={1.2} strokeDasharray={pageDims.width/260}/>)}
                 {(s.openings||[]).map((op,i)=>{const ox=op.reduce((a,p)=>a+p[0],0)/op.length*pageDims.width,oy=op.reduce((a,p)=>a+p[1],0)/op.length*pageDims.height;return <g key={i} onClick={e=>{e.stopPropagation();vetoOpening(s.id,i);}} style={{cursor:"pointer"}}>
                   <polygon points={toSVGPoints(op)} fill="#EF4444" fillOpacity={0.18} stroke="#EF4444" strokeWidth={1.6} strokeDasharray={pageDims.width/220}/>
@@ -535,7 +558,8 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
               <button onClick={exportInteractiveExcel} style={{width:"100%",padding:"0.45rem",background:"linear-gradient(180deg,#A78BFA,#8B5CF6)",color:"#fff",border:"none",borderRadius:6,fontSize:"0.66rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>↓ Export (incl. preview)</button>
             </div>}
             {bucketShapes.length>0&&<div style={{marginTop:"0.5rem",padding:"0.6rem",background:NAVY,borderRadius:7,border:"1px solid #10B98155"}}>
-              <div style={{fontSize:"0.6rem",letterSpacing:"0.12em",color:"#6EE7B7",textTransform:"uppercase",fontWeight:700,marginBottom:"0.5rem"}}>🪣 Bucket fills</div>
+              <div style={{fontSize:"0.6rem",letterSpacing:"0.12em",color:"#6EE7B7",textTransform:"uppercase",fontWeight:700,marginBottom:"0.15rem"}}>🪣 Measured shapes</div>
+              <div style={{fontSize:"0.55rem",color:"#64748B",marginBottom:"0.5rem"}}>click a shape on the drawing to grab & drag its corners — SF follows</div>
               {bucketShapes.map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:"0.35rem",marginBottom:"0.3rem"}}>
                 <span style={{fontSize:"0.7rem",fontWeight:700,color:s.openings_review?"#FCD34D":"#E2E8F0",minWidth:60}} title={s.opening_sf>0?`net of ${Math.round(s.opening_sf).toLocaleString()} SF openings — click ✕ on the drawing to undo any`:""}>{Math.round(s.area_sf).toLocaleString()} SF{s.opening_sf>0?"*":""}{s.openings_review?" ⚠":""}</span>
                 <input value={s.material} onChange={e=>setBucketMaterial(s.id,e.target.value)} placeholder="material…" style={{flex:1,minWidth:0,padding:"0.2rem 0.4rem",borderRadius:5,border:"1px solid #2D5280",background:NAVY_LT,color:"#E2E8F0",fontSize:"0.62rem",fontFamily:"inherit"}}/>
@@ -1483,7 +1507,7 @@ export default function BFSEstimator() {
 
       {/* ── Header ── */}
       <header style={{background:"linear-gradient(180deg,#0F2138,#0B1728)",height:96,padding:"0 2.4rem",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,boxShadow:"0 1px 0 rgba(255,255,255,0.06), 0 6px 28px -8px rgba(0,0,0,0.55)",zIndex:10}}>
-        <div style={{display:"flex",alignItems:"center",gap:"1.25rem"}}>
+        <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:"1.25rem"}}>
           <img src="/logo-bfs.png" alt="BFS" style={{height:66,width:"auto"}}/>
           <div style={{width:1,height:54,background:"rgba(255,255,255,0.13)"}}/>
           <div>
@@ -1491,7 +1515,13 @@ export default function BFSEstimator() {
             <div style={{fontSize:"1.4rem",fontWeight:600,color:"#fff",letterSpacing:"-0.025em",fontFamily:"'Space Grotesk',sans-serif"}}>AI Estimator</div>
           </div>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:"1rem"}}>
+        {/* Top-level nav tabs — front and center */}
+        <div style={{display:"flex",gap:"0.25rem",background:"rgba(255,255,255,0.07)",borderRadius:11,padding:"0.28rem",border:"1px solid rgba(255,255,255,0.09)",boxShadow:"inset 0 1px 4px rgba(0,0,0,0.35)"}}>
+          {[["takeoff","Takeoff"],["queue","Queue"],["manual","Draw"],["scope","Scope"],["budget","Budget"],["model","Model"]].map(([t,label])=>(
+            <button key={t} onClick={()=>setAppTab(t)} style={{padding:"0.5rem 1.15rem",borderRadius:8,border:"none",fontSize:"0.78rem",fontWeight:appTab===t?700:600,fontFamily:"inherit",cursor:"pointer",background:appTab===t?"linear-gradient(180deg,#5A92D2,#3F79BC)":"transparent",color:appTab===t?"#fff":"rgba(255,255,255,0.55)",boxShadow:appTab===t?"0 2px 12px rgba(74,134,200,0.5)":"none",letterSpacing:"-0.01em",transition:"all 0.15s"}}>{label}</button>
+          ))}
+        </div>
+        <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:"1rem"}}>
           {appTab==="takeoff"&&showResults&&(
             <div style={{display:"flex",gap:"0.5rem"}}>
               <button onClick={exportExcel} style={{padding:"0.45rem 1rem",background:"transparent",color:"rgba(255,255,255,0.7)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↓ Excel</button>
@@ -1500,12 +1530,6 @@ export default function BFSEstimator() {
               <button onClick={()=>{setFile(null);setPhase("idle");setResults(null);setLog([]);setAssignments({});}} style={{padding:"0.45rem 1rem",background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.6)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↺ New</button>
             </div>
           )}
-          {/* Top-level nav tabs */}
-          <div style={{display:"flex",gap:"0.2rem",background:"rgba(255,255,255,0.06)",borderRadius:9,padding:"0.2rem"}}>
-            {[["takeoff","Takeoff"],["queue","Queue"],["manual","Draw"],["scope","Scope"],["budget","Budget"],["model","Model"]].map(([t,label])=>(
-              <button key={t} onClick={()=>setAppTab(t)} style={{padding:"0.42rem 1.05rem",borderRadius:7,border:"none",fontSize:"0.74rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer",background:appTab===t?BLUE:"transparent",color:appTab===t?"#fff":"rgba(255,255,255,0.55)",boxShadow:appTab===t?"0 2px 10px rgba(74,134,200,0.45)":"none",letterSpacing:"-0.01em"}}>{label}</button>
-            ))}
-          </div>
         </div>
       </header>
 
