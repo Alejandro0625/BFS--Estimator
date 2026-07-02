@@ -182,6 +182,9 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     setPageImage(BACKEND+"/page-image/"+results.jobId+"/"+pageNum);
   }, [elevIdx, pageNum, results.jobId, BACKEND]);
 
+  // NEW JOB → clear all per-job marks (bucket fills, group picks). Without this, shapes from the
+  // previous drawing would silently flow into the next job's totals/Excel — a money bug.
+  useEffect(()=>{ setBucketShapes([]); setSelGroups({}); setPreviewGroups([]); setSnapMsg(""); }, [results.jobId]);
   // Pull shared learning from the server into local memory (so repeats are pre-identified)
   useEffect(()=>{
     fetch(BACKEND+"/recall").then(r=>r.ok?r.json():null).then(d=>{
@@ -254,6 +257,8 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   };
   const removeGroup = () => { setAssignments(prev=>{const n={...prev};selectedIds.forEach(id=>delete n[assignKey(id)]);return n;}); };
   const exportInteractiveExcel = () => {
+    const badScale=(results.takeoffData||[]).filter(e=>(e.zones||[]).some(z=>(z.netArea||0)>0)&&(e.scaleSource==="default"||(!e.verifiedScale&&!e.scale))).length;
+    if(badScale>0 && !window.confirm("⚠ "+badScale+" page(s) used a DEFAULT scale (couldn't read it) — SF could be far off. Calibrate first.\n\nExport anyway?")) return;
     const mt={};
     Object.values(assignments).forEach(a=>{const k=a.materialName||a.category||"Panel";if(!mt[k])mt[k]={name:k,sf:0};mt[k].sf+=a.area_sf||0;});
     bucketShapes.forEach(s=>{const k=s.material||"Cladding (bucket)";if(!mt[k])mt[k]={name:k,sf:0};mt[k].sf+=s.area_sf||0;});
@@ -281,7 +286,14 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     if(cornerMode){ setCornerPts(prev=>[...prev,p]); return; }
     doBucket(p);
   };
-  const addBucketShape=(points,area_sf)=>setBucketShapes(prev=>[...prev,{id:Date.now(),page:pageNum,points,area_sf,material:""}]);
+  const addBucketShape=(points,area_sf,extra={})=>setBucketShapes(prev=>[...prev,{id:Date.now(),page:pageNum,points,area_sf,material:"",...extra}]);
+  // Veto a deducted opening: add its SF back and drop its outline (never a silent deduction)
+  const vetoOpening=(shapeId,idx)=>setBucketShapes(prev=>prev.map(s=>{
+    if(s.id!==shapeId||!s.openings) return s;
+    const op=s.openings[idx]; if(!op) return s;
+    const per=(s.opening_sf||0)/Math.max(s.openings.length,1);
+    return {...s, openings:s.openings.filter((_,i)=>i!==idx), opening_sf:Math.max(0,(s.opening_sf||0)-per), area_sf:(s.area_sf||0)+per};
+  }));
   const doBucket=async p=>{
     setSnapBusy(true); setSnapMsg("Filling…");
     try{
@@ -297,7 +309,10 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     setSnapBusy(true);
     try{
       const r=await fetch(BACKEND+"/snap-fill",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page:pageNum,corners:cornerPts.map(c=>[c.x,c.y])})}).then(r=>r.json());
-      if(r.status==="ok"){ addBucketShape(r.points,r.area_sf); setSnapMsg(`✓ ${Math.round(r.area_sf).toLocaleString()} SF`); }
+      if(r.status==="ok"){
+        addBucketShape(r.points,r.area_sf,{gross_sf:r.gross_sf,opening_sf:r.opening_sf||0,openings:r.openings||[],openings_review:!!r.openings_review});
+        setSnapMsg((r.opening_sf>0?`✓ ${Math.round(r.area_sf).toLocaleString()} SF net (−${Math.round(r.opening_sf).toLocaleString()} openings — tap ✕ on any to undo)`:`✓ ${Math.round(r.area_sf).toLocaleString()} SF`)+(r.openings_review?" ⚠ check deductions":""));
+      }
       else setSnapMsg("Couldn't snap those corners");
     }catch(e){ setSnapMsg("Snap failed"); }
     setCornerMode(false); setCornerPts([]); setSnapBusy(false);
@@ -389,9 +404,13 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
               })}
               {calibPts.length===2&&<line x1={calibPts[0].x*pageDims.width} y1={calibPts[0].y*pageDims.height} x2={calibPts[1].x*pageDims.width} y2={calibPts[1].y*pageDims.height} stroke="#EF4444" strokeWidth={pageDims.width/350} strokeDasharray={pageDims.width/90}/>}
               {calibPts.map((p,i)=><circle key={"cp"+i} cx={p.x*pageDims.width} cy={p.y*pageDims.height} r={pageDims.width/110} fill="#EF4444" stroke="#fff" strokeWidth={pageDims.width/600}/>)}
-              {pageBucketShapes.map(s=>{const cx=s.points.reduce((a,p)=>a+p[0],0)/s.points.length*pageDims.width,cy=s.points.reduce((a,p)=>a+p[1],0)/s.points.length*pageDims.height;return <g key={"bk"+s.id}>
-                <polygon points={toSVGPoints(s.points)} fill="#10B981" fillOpacity={0.32} stroke="#10B981" strokeWidth={2}/>
-                <rect x={cx-38} y={cy-9} width={76} height={18} fill="rgba(0,0,0,0.82)" rx={4}/><text x={cx} y={cy+2} textAnchor="middle" dominantBaseline="middle" fill="#6EE7B7" fontSize={pageDims.width/75} fontFamily="Inter,Arial" fontWeight="bold">{Math.round(s.area_sf).toLocaleString()} SF</text>
+              {pageBucketShapes.map(s=>{const cx=s.points.reduce((a,p)=>a+p[0],0)/s.points.length*pageDims.width,cy=s.points.reduce((a,p)=>a+p[1],0)/s.points.length*pageDims.height;const warn=s.openings_review;return <g key={"bk"+s.id}>
+                <polygon points={toSVGPoints(s.points)} fill={warn?"#F59E0B":"#10B981"} fillOpacity={0.30} stroke={warn?"#F59E0B":"#10B981"} strokeWidth={2}/>
+                {(s.openings||[]).map((op,i)=>{const ox=op.reduce((a,p)=>a+p[0],0)/op.length*pageDims.width,oy=op.reduce((a,p)=>a+p[1],0)/op.length*pageDims.height;return <g key={i} onClick={e=>{e.stopPropagation();vetoOpening(s.id,i);}} style={{cursor:"pointer"}}>
+                  <polygon points={toSVGPoints(op)} fill="#EF4444" fillOpacity={0.18} stroke="#EF4444" strokeWidth={1.6} strokeDasharray={pageDims.width/220}/>
+                  <circle cx={ox} cy={oy} r={pageDims.width/140} fill="#EF4444"/><text x={ox} y={oy+pageDims.width/400} textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={pageDims.width/110} fontFamily="Inter,Arial" fontWeight="bold">✕</text>
+                </g>;})}
+                <rect x={cx-52} y={cy-9} width={104} height={18} fill="rgba(0,0,0,0.82)" rx={4}/><text x={cx} y={cy+2} textAnchor="middle" dominantBaseline="middle" fill={warn?"#FCD34D":"#6EE7B7"} fontSize={pageDims.width/75} fontFamily="Inter,Arial" fontWeight="bold">{Math.round(s.area_sf).toLocaleString()} SF{s.opening_sf>0?" net":""}</text>
               </g>;})}
               {cornerMode&&cornerPts.length>0&&<polyline points={toSVGPoints(cornerPts.map(p=>[p.x,p.y]))} fill="none" stroke="#FCD34D" strokeWidth={pageDims.width/400} strokeDasharray={pageDims.width/120}/>}
               {cornerMode&&cornerPts.map((p,i)=><circle key={"kp"+i} cx={p.x*pageDims.width} cy={p.y*pageDims.height} r={pageDims.width/130} fill="#FCD34D" stroke="#fff" strokeWidth={pageDims.width/700}/>)}
@@ -493,7 +512,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
             {bucketShapes.length>0&&<div style={{marginTop:"0.5rem",padding:"0.6rem",background:NAVY,borderRadius:7,border:"1px solid #10B98155"}}>
               <div style={{fontSize:"0.6rem",letterSpacing:"0.12em",color:"#6EE7B7",textTransform:"uppercase",fontWeight:700,marginBottom:"0.5rem"}}>🪣 Bucket fills</div>
               {bucketShapes.map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:"0.35rem",marginBottom:"0.3rem"}}>
-                <span style={{fontSize:"0.7rem",fontWeight:700,color:"#E2E8F0",minWidth:60}}>{Math.round(s.area_sf).toLocaleString()} SF</span>
+                <span style={{fontSize:"0.7rem",fontWeight:700,color:s.openings_review?"#FCD34D":"#E2E8F0",minWidth:60}} title={s.opening_sf>0?`net of ${Math.round(s.opening_sf).toLocaleString()} SF openings — click ✕ on the drawing to undo any`:""}>{Math.round(s.area_sf).toLocaleString()} SF{s.opening_sf>0?"*":""}{s.openings_review?" ⚠":""}</span>
                 <input value={s.material} onChange={e=>setBucketMaterial(s.id,e.target.value)} placeholder="material…" style={{flex:1,minWidth:0,padding:"0.2rem 0.4rem",borderRadius:5,border:"1px solid #2D5280",background:NAVY_LT,color:"#E2E8F0",fontSize:"0.62rem",fontFamily:"inherit"}}/>
                 {s.page!==pageNum&&<span style={{fontSize:"0.55rem",color:"#475569"}}>p{s.page}</span>}
                 <span onClick={()=>removeBucketShape(s.id)} title="remove" style={{cursor:"pointer",color:"#F87171",fontSize:"0.85rem",fontWeight:700}}>×</span>
@@ -1258,6 +1277,7 @@ export default function BFSEstimator() {
   const openResult = (r) => {
     if(!r) return;
     setResults(r); setAssignments({}); setErrMsg("");
+    setPricing(p=>({...p, sfOverride:{}, customLines:[]}));  // fresh job → fresh per-job numbers
     setPhase("done"); setProgress({ label:"Complete", pct:100 });
     setAppTab("takeoff");
   };
@@ -1284,6 +1304,7 @@ export default function BFSEstimator() {
   const run = async()=>{
     if(!file)return;
     setPhase("running");setLog([]);setErrMsg("");setResults(null);setAssignments({});seenLogs.current=0;
+    setPricing(p=>({...p, sfOverride:{}, customLines:[]}));  // per-JOB numbers must never carry into the next bid (rates/waste/margin persist as the working rate card)
     try{
       setLog([{msg:"Uploading PDF...",level:"info"}]);
       const fd=new FormData();fd.append("pdf",file);
@@ -1294,8 +1315,16 @@ export default function BFSEstimator() {
     }catch(err){setErrMsg(err.message);setPhase("error");}
   };
 
+  // MONEY GATE: never let a silently-wrong SF into a bid file. Unread scale = up to 4x SF error (it squares).
+  const moneyGuard=()=>{
+    const warns=[];
+    if(defaultScaleN>0) warns.push("• "+defaultScaleN+" page(s) used a DEFAULT scale (couldn't read it) — SF could be far off. Open the elevation and Calibrate first.");
+    if(labelWarnN>0) warns.push("• "+labelWarnN+" page(s) have a markup label that looks like a typo (flagged in review).");
+    return warns.length===0 || window.confirm("⚠ CHECK BEFORE BIDDING\n\n"+warns.join("\n")+"\n\nExport anyway?");
+  };
   const exportExcel=()=>{
     if(!results)return;
+    if(!moneyGuard())return;
     const mt={};
     results.takeoffData.forEach(e=>(e.zones||[]).forEach(z=>{const k=dispName(z.materialName||z.category||"Panel");if(!mt[k])mt[k]={name:k,sf:0};mt[k].sf+=z.netArea||0;}));
     const wb=buildExcel(results.projName||"Project",Object.values(mt));
@@ -1358,6 +1387,7 @@ export default function BFSEstimator() {
   const bidTotal = costSubtotal*(1+pricing.marginPct/100);
   const exportPricedExcel=()=>{
     if(!priceRows.length)return;
+    if(!moneyGuard())return;
     const mats=priceRows.map(r=>({name:r.cat,sf:r.net,rate:r.rate}));
     const wb=buildExcel(results.projName||"Project",mats,{wastePct:pricing.wastePct,marginPct:pricing.marginPct});
     XLSX.writeFile(wb,"BFS_Bid_"+(results.projName||"Project").replace(/\s+/g,"_")+".xlsx");
@@ -1387,6 +1417,7 @@ export default function BFSEstimator() {
   const budgetTotal = budgetSubtotal*(1+pricing.marginPct/100);
   const exportBudgetExcel=()=>{
     if(!results) return;
+    if(!moneyGuard())return;
     const w=1+(pricing.wastePct||0)/100;   // buildExcel applies waste to every qty; pre-divide LF/custom so only material SF gets waste
     const mats=[...priceRows.map(r=>({name:r.cat,sf:r.net,rate:r.rate})),
                 ...lfRows.map(r=>({name:r.material+" (per LF)",sf:(r.lf||0)/w,rate:r.rate})),
