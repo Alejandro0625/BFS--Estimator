@@ -140,6 +140,79 @@ const buildExcel = (projectName, materials, pricing) => {
 };
 
 /* ── Interactive Takeoff ── */
+/* ── Bluebeam-style deep zoom: wheel zooms to the cursor, shift/middle-drag pans; past 2.2×
+     it fetches a crisp HIGH-RES render of just the viewport so textures stay sharp. ── */
+function DeepZoom({ BACKEND, jobId, pageNum, children }) {
+  const boxRef = useRef(); const innerRef = useRef();
+  const [k, setK] = useState(1);
+  const [tx, setTx] = useState(0); const [ty, setTy] = useState(0);
+  const [crop, setCrop] = useState(null);
+  const drag = useRef(null); const timer = useRef(); const justDragged = useRef(false);
+  const stateRef = useRef({ k: 1, tx: 0, ty: 0 }); stateRef.current = { k, tx, ty };
+  useEffect(() => () => clearTimeout(timer.current), []);
+  useEffect(() => { setK(1); setTx(0); setTy(0); setCrop(null); }, [jobId, pageNum]);
+  const schedule = (nk, nx, ny) => {
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      if (nk < 2.2 || !jobId) { setCrop(null); return; }
+      const box = boxRef.current, inner = innerRef.current; if (!box || !inner) return;
+      const w = inner.offsetWidth, h = inner.offsetHeight; if (!w || !h) return;
+      const x0 = Math.max(0, -nx / (nk * w)), y0 = Math.max(0, -ny / (nk * h));
+      const x1 = Math.min(1, x0 + box.clientWidth / (nk * w)), y1 = Math.min(1, y0 + box.clientHeight / (nk * h));
+      const url = `${BACKEND}/page-crop/${jobId}/${pageNum}?x0=${x0.toFixed(4)}&y0=${y0.toFixed(4)}&x1=${x1.toFixed(4)}&y1=${y1.toFixed(4)}&px=2000`;
+      const im = new window.Image();
+      im.onload = () => setCrop({ url, x0, y0, x1, y1 });
+      im.src = url;
+    }, 350);
+  };
+  useEffect(() => {
+    const box = boxRef.current; if (!box) return;
+    const onWheel = e => {
+      e.preventDefault();
+      const { k, tx, ty } = stateRef.current;
+      const r = box.getBoundingClientRect();
+      const mx = e.clientX - r.left, my = e.clientY - r.top;
+      let nk = Math.max(1, Math.min(14, k * (e.deltaY < 0 ? 1.2 : 1 / 1.2)));
+      let nx = mx - ((mx - tx) / k) * nk, ny = my - ((my - ty) / k) * nk;
+      if (nk === 1) { nx = 0; ny = 0; }
+      setK(nk); setTx(nx); setTy(ny); schedule(nk, nx, ny);
+    };
+    box.addEventListener("wheel", onWheel, { passive: false });
+    return () => box.removeEventListener("wheel", onWheel);
+  }, [jobId, pageNum]);
+  const onMouseDown = e => {
+    const { k } = stateRef.current;
+    if (e.button === 1 || (e.button === 0 && e.shiftKey && k > 1)) {
+      e.preventDefault();
+      drag.current = { sx: e.clientX, sy: e.clientY, tx: stateRef.current.tx, ty: stateRef.current.ty };
+    }
+  };
+  const onMouseMove = e => { if (!drag.current) return; const d = drag.current; setTx(d.tx + e.clientX - d.sx); setTy(d.ty + e.clientY - d.sy); };
+  const onMouseUp = e => {
+    if (drag.current) {
+      if (Math.abs(e.clientX - drag.current.sx) + Math.abs(e.clientY - drag.current.sy) > 4) justDragged.current = true;
+      drag.current = null;
+      schedule(stateRef.current.k, stateRef.current.tx, stateRef.current.ty);
+    }
+  };
+  const onClickCapture = e => { if (justDragged.current) { justDragged.current = false; e.stopPropagation(); e.preventDefault(); } };
+  const innerW = innerRef.current?.offsetWidth || 0;
+  const innerH = innerRef.current?.offsetHeight || 0;
+  return (
+    <div ref={boxRef} onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp} onClickCapture={onClickCapture}
+      style={{ overflow: "hidden", position: "relative", maxWidth: "100%" }}>
+      <div ref={innerRef} style={{ transform: `translate(${tx}px,${ty}px) scale(${k})`, transformOrigin: "0 0", position: "relative", display: "inline-block" }}>
+        {children}
+        {crop && k >= 2.2 && innerW > 0 && (
+          <img src={crop.url} alt="" style={{ position: "absolute", left: crop.x0 * innerW, top: crop.y0 * innerH,
+            width: (crop.x1 - crop.x0) * innerW, height: (crop.y1 - crop.y0) * innerH, pointerEvents: "none", zIndex: 1 }}/>
+        )}
+      </div>
+      {k > 1 && <div style={{ position: "absolute", top: 8, right: 8, fontSize: "0.6rem", padding: "0.2rem 0.55rem", borderRadius: 12, background: "rgba(12,27,46,0.78)", color: "#9FC3EA", pointerEvents: "none", zIndex: 3 }}>{k.toFixed(1)}× · wheel = zoom · shift-drag = pan</div>}
+    </div>
+  );
+}
+
 function InteractiveView({ results, BACKEND, assignments, setAssignments, groupRename={}, setGroupRename=()=>{} }) {
   const [elevIdx, setElevIdx] = useState(0);
   const [pageImage, setPageImage] = useState(null);
@@ -428,9 +501,10 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
           {groupMode&&!groupBusy&&<div style={{fontSize:"0.62rem",padding:"0.3rem 0.6rem",borderRadius:20,background:NAVY_LT,color:"#C4B5FD",border:"1px solid #4C1D95"}}>Preview — pick the groups you're bidding {previewGroups.length>0?`(${previewGroups.length} found)`:""}</div>}
         </div>
         {!pageImage?<div style={{color:"#475569",fontSize:"0.8rem",marginTop:"4rem"}}>Loading elevation...</div>:
+          <DeepZoom BACKEND={BACKEND} jobId={results.jobId} pageNum={pageNum}>
           <div style={{position:"relative",display:"inline-block",maxWidth:"100%"}}>
             <img ref={imgRef} src={pageImage} alt={elev?.title} onLoad={e=>{setImgNaturalSize({w:e.target.naturalWidth,h:e.target.naturalHeight});setImgLoaded(true);}} style={{display:"block",maxWidth:"100%",maxHeight:"calc(100vh - 180px)",objectFit:"contain",borderRadius:6,border:"1px solid "+NAVY_LT}}/>
-            {imgLoaded&&<svg ref={svgRef} onClick={handleSvgClick} onMouseMove={handleSvgMove} onMouseUp={endDrag} onMouseLeave={endDrag} viewBox={`0 0 ${pageDims.width} ${pageDims.height}`} style={{position:"absolute",top:0,left:0,width:svgW,height:svgH,overflow:"visible",cursor:(calibMode||bucketMode)?"crosshair":"default"}}>
+            {imgLoaded&&<svg ref={svgRef} onClick={handleSvgClick} onMouseMove={handleSvgMove} onMouseUp={endDrag} onMouseLeave={endDrag} viewBox={`0 0 ${pageDims.width} ${pageDims.height}`} style={{position:"absolute",top:0,left:0,width:svgW,height:svgH,overflow:"visible",zIndex:2,cursor:(calibMode||bucketMode)?"crosshair":"default"}}>
               {displayZones.map(zone=>{
                 const a=getAssignment(zone.id);
                 let color="#94A3B8";
@@ -467,6 +541,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
               </g>;})}
             </svg>}
           </div>
+          </DeepZoom>
         }
       </div>
       {/* Right panel */}
