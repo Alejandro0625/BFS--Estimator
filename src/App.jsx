@@ -153,6 +153,13 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   const [calibPts, setCalibPts] = useState([]);
   const [calibFt, setCalibFt] = useState(null);
   const [realDist, setRealDist] = useState("");
+  // Bucket-fill (coloring-book) assist — click a wall → exact SF from vector geometry. Additive/opt-in.
+  const [bucketMode, setBucketMode] = useState(false);
+  const [cornerMode, setCornerMode] = useState(false);   // fallback when a bucket click "leaks"
+  const [cornerPts, setCornerPts] = useState([]);
+  const [bucketShapes, setBucketShapes] = useState([]);  // each: {id,page,points,area_sf,material}
+  const [snapMsg, setSnapMsg] = useState("");
+  const [snapBusy, setSnapBusy] = useState(false);
   const imgRef = useRef();
   const svgRef = useRef();
   const elevations = results.takeoffData.filter(e => e.pageNumber);
@@ -243,6 +250,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   const exportInteractiveExcel = () => {
     const mt={};
     Object.values(assignments).forEach(a=>{const k=a.materialName||a.category||"Panel";if(!mt[k])mt[k]={name:k,sf:0};mt[k].sf+=a.area_sf||0;});
+    bucketShapes.forEach(s=>{const k=s.material||"Cladding (bucket)";if(!mt[k])mt[k]={name:k,sf:0};mt[k].sf+=s.area_sf||0;});
     const wb=buildExcel(results.projName||"Project",Object.values(mt));
     XLSX.writeFile(wb,"BFS_Takeoff_"+(results.projName||"Project").replace(/\s+/g,"_")+".xlsx");
   };
@@ -260,10 +268,38 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     return { x:p.x/pageDims.width, y:p.y/pageDims.height };
   };
   const handleSvgClick=evt=>{
-    if(!calibMode) return;
+    if(calibMode){ const p=getSvgPoint(evt); if(p) setCalibPts(prev=>prev.length>=2?[p]:[...prev,p]); return; }
+    if(!bucketMode||snapBusy) return;
     const p=getSvgPoint(evt); if(!p) return;
-    setCalibPts(prev=>prev.length>=2?[p]:[...prev,p]);
+    if(cornerMode){ setCornerPts(prev=>[...prev,p]); return; }
+    doBucket(p);
   };
+  const addBucketShape=(points,area_sf)=>setBucketShapes(prev=>[...prev,{id:Date.now(),page:pageNum,points,area_sf,material:""}]);
+  const doBucket=async p=>{
+    setSnapBusy(true); setSnapMsg("Filling…");
+    try{
+      const r=await fetch(BACKEND+"/snap-fill",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page:pageNum,point:[p.x,p.y]})}).then(r=>r.json());
+      if(r.status==="ok"){ addBucketShape(r.points,r.area_sf); setSnapMsg(`✓ ${Math.round(r.area_sf).toLocaleString()} SF`); }
+      else if(r.status==="leak"){ setCornerMode(true); setCornerPts([]); setSnapMsg("Open field — click each corner, then Finish"); }
+      else setSnapMsg("Couldn't fill there — try clicking the corners");
+    }catch(e){ setSnapMsg("Snap failed — check connection"); }
+    setSnapBusy(false);
+  };
+  const finishCorners=async()=>{
+    if(cornerPts.length<3){ setSnapMsg("Click at least 3 corners"); return; }
+    setSnapBusy(true);
+    try{
+      const r=await fetch(BACKEND+"/snap-fill",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page:pageNum,corners:cornerPts.map(c=>[c.x,c.y])})}).then(r=>r.json());
+      if(r.status==="ok"){ addBucketShape(r.points,r.area_sf); setSnapMsg(`✓ ${Math.round(r.area_sf).toLocaleString()} SF`); }
+      else setSnapMsg("Couldn't snap those corners");
+    }catch(e){ setSnapMsg("Snap failed"); }
+    setCornerMode(false); setCornerPts([]); setSnapBusy(false);
+  };
+  const cancelCorners=()=>{ setCornerMode(false); setCornerPts([]); setSnapMsg(""); };
+  const removeBucketShape=id=>setBucketShapes(prev=>prev.filter(s=>s.id!==id));
+  const setBucketMaterial=(id,mat)=>setBucketShapes(prev=>prev.map(s=>s.id===id?{...s,material:mat}:s));
+  const pageBucketShapes=bucketShapes.filter(s=>s.page===pageNum);
+  const bucketTotalSF=pageBucketShapes.reduce((s,x)=>s+(x.area_sf||0),0);
   const applyCalibration=()=>{
     if(calibPts.length<2) return;
     const [a,b]=calibPts;
@@ -302,11 +338,18 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
             <input value={realDist} onChange={e=>setRealDist(e.target.value)} onKeyDown={e=>e.key==="Enter"&&applyCalibration()} placeholder="e.g. 20" style={{width:64,padding:"0.25rem 0.4rem",borderRadius:5,border:"1px solid #2D5280",background:NAVY,color:"#E2E8F0",fontSize:"0.65rem",fontFamily:"inherit"}}/>
             <button onClick={applyCalibration} style={{fontSize:"0.65rem",padding:"0.25rem 0.6rem",borderRadius:5,border:"none",background:"linear-gradient(180deg,#5A92D2,#3F79BC)",color:"#fff",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>Apply</button>
           </div>}
+          <button onClick={()=>{setBucketMode(m=>!m);setCornerMode(false);setCornerPts([]);setSnapMsg("");setCalibMode(false);}} style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid "+(bucketMode?"#10B981":"#2D5280"),background:bucketMode?"#064E3B":NAVY_LT,color:bucketMode?"#6EE7B7":"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>🪣 {bucketMode?"Bucket ON — click a wall":"Bucket fill"}</button>
+          {bucketMode&&cornerMode&&<div style={{display:"flex",alignItems:"center",gap:"0.35rem"}}>
+            <span style={{fontSize:"0.63rem",color:"#FCD34D"}}>Corners: {cornerPts.length}</span>
+            <button onClick={finishCorners} disabled={cornerPts.length<3} style={{fontSize:"0.63rem",padding:"0.25rem 0.6rem",borderRadius:5,border:"none",background:cornerPts.length<3?"#334155":"linear-gradient(180deg,#34D399,#10B981)",color:"#fff",cursor:cornerPts.length<3?"default":"pointer",fontFamily:"inherit",fontWeight:700}}>Finish</button>
+            <button onClick={cancelCorners} style={{fontSize:"0.63rem",padding:"0.25rem 0.5rem",borderRadius:5,border:"1px solid #2D5280",background:NAVY_LT,color:"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+          </div>}
+          {bucketMode&&snapMsg&&<div style={{fontSize:"0.63rem",padding:"0.3rem 0.6rem",borderRadius:20,background:NAVY_LT,color:snapMsg[0]==="✓"?"#6EE7B7":"#CBD5E1",border:"1px solid #2D5280"}}>{snapMsg}</div>}
         </div>
         {!pageImage?<div style={{color:"#475569",fontSize:"0.8rem",marginTop:"4rem"}}>Loading elevation...</div>:
           <div style={{position:"relative",display:"inline-block",maxWidth:"100%"}}>
             <img ref={imgRef} src={pageImage} alt={elev?.title} onLoad={e=>{setImgNaturalSize({w:e.target.naturalWidth,h:e.target.naturalHeight});setImgLoaded(true);}} style={{display:"block",maxWidth:"100%",maxHeight:"calc(100vh - 180px)",objectFit:"contain",borderRadius:6,border:"1px solid "+NAVY_LT}}/>
-            {imgLoaded&&<svg ref={svgRef} onClick={handleSvgClick} viewBox={`0 0 ${pageDims.width} ${pageDims.height}`} style={{position:"absolute",top:0,left:0,width:svgW,height:svgH,overflow:"visible",cursor:calibMode?"crosshair":"default"}}>
+            {imgLoaded&&<svg ref={svgRef} onClick={handleSvgClick} viewBox={`0 0 ${pageDims.width} ${pageDims.height}`} style={{position:"absolute",top:0,left:0,width:svgW,height:svgH,overflow:"visible",cursor:(calibMode||bucketMode)?"crosshair":"default"}}>
               {displayZones.map(zone=>{
                 const a=getAssignment(zone.id);
                 let color="#94A3B8";
@@ -318,13 +361,19 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
                 const pts=toSVGPoints(zone.points);
                 const lx=zone.cx*pageDims.width,ly=zone.cy*pageDims.height;
                 const showLabel=!dimmed&&(a||isSel||zone.source==="bluebeam"||zone.source==="claude_vision");
-                return <g key={zone.id} style={{cursor:calibMode?"crosshair":"pointer"}} onClick={e=>{if(calibMode)return;e.stopPropagation();const k=gkey(zone);setActiveGroup(activeGroup===k?null:k);}}>
+                return <g key={zone.id} style={{cursor:(calibMode||bucketMode)?"crosshair":"pointer"}} onClick={e=>{if(calibMode||bucketMode)return;e.stopPropagation();const k=gkey(zone);setActiveGroup(activeGroup===k?null:k);}}>
                   <polygon points={pts} fill={color} fillOpacity={dimmed?0.06:isSel?0.6:zone.source==="bluebeam"?0.45:a?0.38:0.22} stroke={isSel?"#fff":color} strokeWidth={isSel?2.5:1.5} strokeOpacity={dimmed?0.25:0.9}/>
                   {showLabel&&<><rect x={lx-32} y={ly-9} width={64} height={18} fill="rgba(0,0,0,0.8)" rx={4}/><text x={lx} y={ly+2} textAnchor="middle" dominantBaseline="middle" fill="white" fontSize={pageDims.width/75} fontFamily="Inter,Arial" fontWeight="bold">{zone.source==="claude_vision"&&!a?zone.material_type:Math.round(zone.area_sf)+" SF"}</text></>}
                 </g>;
               })}
               {calibPts.length===2&&<line x1={calibPts[0].x*pageDims.width} y1={calibPts[0].y*pageDims.height} x2={calibPts[1].x*pageDims.width} y2={calibPts[1].y*pageDims.height} stroke="#EF4444" strokeWidth={pageDims.width/350} strokeDasharray={pageDims.width/90}/>}
               {calibPts.map((p,i)=><circle key={"cp"+i} cx={p.x*pageDims.width} cy={p.y*pageDims.height} r={pageDims.width/110} fill="#EF4444" stroke="#fff" strokeWidth={pageDims.width/600}/>)}
+              {pageBucketShapes.map(s=>{const cx=s.points.reduce((a,p)=>a+p[0],0)/s.points.length*pageDims.width,cy=s.points.reduce((a,p)=>a+p[1],0)/s.points.length*pageDims.height;return <g key={"bk"+s.id}>
+                <polygon points={toSVGPoints(s.points)} fill="#10B981" fillOpacity={0.32} stroke="#10B981" strokeWidth={2}/>
+                <rect x={cx-38} y={cy-9} width={76} height={18} fill="rgba(0,0,0,0.82)" rx={4}/><text x={cx} y={cy+2} textAnchor="middle" dominantBaseline="middle" fill="#6EE7B7" fontSize={pageDims.width/75} fontFamily="Inter,Arial" fontWeight="bold">{Math.round(s.area_sf).toLocaleString()} SF</text>
+              </g>;})}
+              {cornerMode&&cornerPts.length>0&&<polyline points={toSVGPoints(cornerPts.map(p=>[p.x,p.y]))} fill="none" stroke="#FCD34D" strokeWidth={pageDims.width/400} strokeDasharray={pageDims.width/120}/>}
+              {cornerMode&&cornerPts.map((p,i)=><circle key={"kp"+i} cx={p.x*pageDims.width} cy={p.y*pageDims.height} r={pageDims.width/130} fill="#FCD34D" stroke="#fff" strokeWidth={pageDims.width/700}/>)}
             </svg>}
           </div>
         }
@@ -406,7 +455,18 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
               </div>
               <button onClick={exportInteractiveExcel} style={{width:"100%",padding:"0.65rem",background:"linear-gradient(180deg,#5A92D2,#3F79BC)",color:"#fff",border:"none",borderRadius:7,fontSize:"0.72rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>↓ Export Excel</button>
             </>}
-            {Object.keys(clusterSummary).length===0&&Object.keys(totals).length===0&&<div style={{fontSize:"0.7rem",color:"#475569",lineHeight:1.8}}>Click any colored area → every area with that same hatch selects and shows its total SF.</div>}
+            {bucketShapes.length>0&&<div style={{marginTop:"0.5rem",padding:"0.6rem",background:NAVY,borderRadius:7,border:"1px solid #10B98155"}}>
+              <div style={{fontSize:"0.6rem",letterSpacing:"0.12em",color:"#6EE7B7",textTransform:"uppercase",fontWeight:700,marginBottom:"0.5rem"}}>🪣 Bucket fills</div>
+              {bucketShapes.map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:"0.35rem",marginBottom:"0.3rem"}}>
+                <span style={{fontSize:"0.7rem",fontWeight:700,color:"#E2E8F0",minWidth:60}}>{Math.round(s.area_sf).toLocaleString()} SF</span>
+                <input value={s.material} onChange={e=>setBucketMaterial(s.id,e.target.value)} placeholder="material…" style={{flex:1,minWidth:0,padding:"0.2rem 0.4rem",borderRadius:5,border:"1px solid #2D5280",background:NAVY_LT,color:"#E2E8F0",fontSize:"0.62rem",fontFamily:"inherit"}}/>
+                {s.page!==pageNum&&<span style={{fontSize:"0.55rem",color:"#475569"}}>p{s.page}</span>}
+                <span onClick={()=>removeBucketShape(s.id)} title="remove" style={{cursor:"pointer",color:"#F87171",fontSize:"0.85rem",fontWeight:700}}>×</span>
+              </div>)}
+              <div style={{display:"flex",justifyContent:"space-between",padding:"0.35rem 0",fontSize:"0.7rem",color:"#6EE7B7",fontWeight:700}}><span>Bucket total</span><span>{Math.round(bucketShapes.reduce((a,s)=>a+(s.area_sf||0),0)).toLocaleString()} SF</span></div>
+              <button onClick={exportInteractiveExcel} style={{width:"100%",padding:"0.5rem",marginTop:"0.3rem",background:"linear-gradient(180deg,#34D399,#10B981)",color:"#fff",border:"none",borderRadius:6,fontSize:"0.68rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>↓ Export (incl. bucket)</button>
+            </div>}
+            {Object.keys(clusterSummary).length===0&&Object.keys(totals).length===0&&bucketShapes.length===0&&<div style={{fontSize:"0.7rem",color:"#475569",lineHeight:1.8}}>Click any colored area → every area with that same hatch selects and shows its total SF.<br/><br/>Or hit <b style={{color:"#6EE7B7"}}>🪣 Bucket fill</b> and click a wall to measure it straight from the drawing.</div>}
             <div style={{marginTop:"1rem",fontSize:"0.6rem",color:"#334155"}}>{Object.keys(assignments).length} areas tagged · {elevations.length} elevations</div>
           </>
         )}
