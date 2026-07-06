@@ -1122,6 +1122,8 @@ const MOAT_MATERIALS = [
 ];
 function ModelView() {
   const maxN = Math.max(...MOAT_MATERIALS.map(m=>m[1]));
+  const [auto, setAuto] = useState(null);   // live autonomy meter: auto output vs human-confirmed finals
+  useEffect(()=>{ fetch(BACKEND+"/autonomy-status").then(r=>r.ok?r.json():null).then(setAuto).catch(()=>{}); },[]);
   return (
     <div style={{flex:1,overflowY:"auto",padding:"2.5rem 2rem"}}>
       <div style={{maxWidth:860,margin:"0 auto"}}>
@@ -1148,6 +1150,25 @@ function ModelView() {
             </div>
           ))}
         </div>
+        {auto&&auto.n>0&&(
+          <div style={{background:"#fff",borderRadius:12,border:"1px solid #EEF2F7",padding:"1.1rem 1.25rem",marginBottom:"1.5rem"}}>
+            <div style={{fontSize:"0.6rem",letterSpacing:"0.1em",color:BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"0.35rem"}}>Autonomy meter — live from your bids</div>
+            <div style={{display:"flex",alignItems:"baseline",gap:"0.75rem",marginBottom:"0.75rem"}}>
+              <span style={{fontSize:"2.2rem",fontWeight:800,color:auto.avg_agreement>=85?"#15803D":auto.avg_agreement>=60?"#B45309":"#B91C1C"}}>{auto.avg_agreement}%</span>
+              <span style={{fontSize:"0.72rem",color:"#64748B"}}>of the final SF, the system got right <b>before any human touched it</b> · {auto.n} exported bid{auto.n!==1?"s":""}</span>
+            </div>
+            {auto.jobs.slice(0,6).map(j=>(
+              <div key={j.jobId} style={{display:"flex",alignItems:"center",gap:"0.6rem",marginBottom:"0.45rem"}}>
+                <div style={{width:180,fontSize:"0.68rem",color:"#374151",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flexShrink:0}}>{j.projName}</div>
+                <div style={{flex:1,height:12,background:"#F1F5F9",borderRadius:6,overflow:"hidden"}}>
+                  <div style={{width:j.agreement+"%",height:"100%",background:j.agreement>=85?"linear-gradient(180deg,#34D399,#10B981)":"linear-gradient(180deg,#FBBF24,#D97706)",borderRadius:6}}/>
+                </div>
+                <div style={{width:100,textAlign:"right",fontSize:"0.64rem",color:"#64748B"}}><b>{j.agreement}%</b> · {j.auto_sf.toLocaleString()}→{j.final_sf.toLocaleString()}</div>
+              </div>
+            ))}
+            <div style={{fontSize:"0.6rem",color:"#94A3B8",marginTop:"0.5rem"}}>Auto SF → confirmed SF per bid. When this meter lives near 100%, estimators stop reviewing and only price.</div>
+          </div>
+        )}
         <div style={{background:NAVY,borderRadius:12,padding:"1.1rem 1.25rem",color:"#fff",marginBottom:"1.5rem"}}>
           <div style={{fontSize:"0.6rem",letterSpacing:"0.1em",color:"rgba(255,255,255,0.5)",textTransform:"uppercase",fontWeight:700,marginBottom:"0.5rem"}}>Model status — measured honestly</div>
           <div style={{fontSize:"0.95rem",fontWeight:700}}>🟢 v10 training — job-split, scale-augmented</div>
