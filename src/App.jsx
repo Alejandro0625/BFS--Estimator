@@ -579,7 +579,12 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
                 const labelTxt=zone.source==="claude_vision"&&!a?zone.material_type:Math.round(zone.area_sf).toLocaleString()+" SF";
                 const pillW=Math.max(64,(labelTxt||"").length*(pageDims.width/130));
                 return <g key={zone.id} style={{cursor:(calibMode||bucketMode)?"crosshair":"pointer",pointerEvents:groupMode?"none":"auto"}} onClick={e=>{if(calibMode||bucketMode||groupMode)return;e.stopPropagation();const k=gkey(zone);setActiveGroup(activeGroup===k?null:k);}}>
-                  <polygon points={pts} fill={color} fillOpacity={dimmed?0.06:isSel?0.6:zone.source==="bluebeam"?0.45:a?0.38:0.22} stroke={isSel?"#fff":color} strokeWidth={isSel?2.5:1.5} strokeOpacity={dimmed?0.25:0.9}/>
+                  {/* FLAT Bluebeam-style fill (the estimator's gold-standard look): solid color,
+                      whisper outline — imperfect borders stop screaming, windows show as cutouts */}
+                  <polygon points={pts} fill={color} fillOpacity={dimmed?0.07:isSel?0.66:0.5} stroke={isSel?"#fff":color} strokeWidth={isSel?2.5:1} strokeOpacity={dimmed?0.2:isSel?1:0.45}/>
+                  {!dimmed&&(zone.holes||[]).map((hp,hi)=>(
+                    <polygon key={"zh"+hi} points={toSVGPoints(hp)} fill="#FFFFFF" fillOpacity={0.85} stroke={color} strokeWidth={1} strokeOpacity={0.6} style={{pointerEvents:"none"}}/>
+                  ))}
                   {showLabel&&<><rect x={lx-pillW/2} y={ly-10} width={pillW} height={20} fill="rgba(0,0,0,0.82)" rx={5}/><text x={lx} y={ly+2} textAnchor="middle" dominantBaseline="middle" fill={isSel?"#6EE7B7":"#FFFFFF"} fontSize={pageDims.width/75} fontFamily="Inter,Arial" fontWeight="bold">{labelTxt}</text></>}
                 </g>;
               })}
