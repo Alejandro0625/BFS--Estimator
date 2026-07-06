@@ -433,7 +433,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     setSnapBusy(true); setSnapMsg("Filling…");
     try{
       const r=await fetch(BACKEND+"/snap-fill",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page:pageNum,point:[p.x,p.y]})}).then(r=>r.json());
-      if(r.status==="ok"){ addBucketShape(r.points,r.area_sf,{holes:r.holes||[]}); setSnapMsg(`✓ ${Math.round(r.area_sf).toLocaleString()} SF${(r.holes||[]).length?" net (openings shown cut out)":""}`); }
+      if(r.status==="ok"){ addBucketShape(r.points,r.area_sf,{holes:r.holes||[],pattern_sig:r.pattern_sig||""}); setSnapMsg(`✓ ${Math.round(r.area_sf).toLocaleString()} SF${(r.holes||[]).length?" net (openings shown cut out)":""}${r.pattern_sig&&r.pattern_sig!=="plain"?" · pattern "+r.pattern_sig:""}`); }
       else if(r.status==="leak"){ setCornerMode(true); setCornerPts([]); setSnapMsg("Open field — click each corner (peaks too), then Finish"); }
       else setSnapMsg("Couldn't fill there — try clicking the corners");
     }catch(e){ setSnapMsg("Snap failed — check connection"); }
@@ -455,6 +455,14 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   const cancelCorners=()=>{ setCornerMode(false); setCornerPts([]); setSnapMsg(""); };
   const removeBucketShape=id=>setBucketShapes(prev=>prev.filter(s=>s.id!==id));
   const setBucketMaterial=(id,mat)=>setBucketShapes(prev=>prev.map(s=>s.id===id?{...s,material:mat}:s));
+  // on blur/Enter: naming one shape names every UNNAMED shape with the SAME PATTERN
+  // (estimator's rule: regions sharing a pattern are the same material, job-wide)
+  const propagateMaterial=(id)=>setBucketShapes(prev=>{
+    const src=prev.find(s=>s.id===id);
+    const sig=src?.pattern_sig; const mat=(src?.material||"").trim();
+    if(!sig||sig==="plain"||!mat) return prev;
+    return prev.map(s=>(s.id!==id&&s.pattern_sig===sig&&!(s.material||"").trim())?{...s,material:mat}:s);
+  });
   const pageBucketShapes=bucketShapes.filter(s=>s.page===pageNum);
   const bucketTotalSF=pageBucketShapes.reduce((s,x)=>s+(x.area_sf||0),0);
   const loadGroups=async()=>{
@@ -684,7 +692,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
               <div style={{fontSize:"0.55rem",color:"#64748B",marginBottom:"0.5rem"}}>click a shape → drag corners (SF follows) · grab a blue midpoint to add a corner · double-click a corner to remove it</div>
               {bucketShapes.map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:"0.35rem",marginBottom:"0.3rem"}}>
                 <span style={{fontSize:"0.7rem",fontWeight:700,color:s.openings_review?"#FCD34D":"#E2E8F0",minWidth:60}} title={s.opening_sf>0?`net of ${Math.round(s.opening_sf).toLocaleString()} SF openings — click ✕ on the drawing to undo any`:""}>{Math.round(s.area_sf).toLocaleString()} SF{s.opening_sf>0?"*":""}{s.openings_review?" ⚠":""}</span>
-                <input value={s.material} onChange={e=>setBucketMaterial(s.id,e.target.value)} placeholder="material…" style={{flex:1,minWidth:0,padding:"0.2rem 0.4rem",borderRadius:5,border:"1px solid #2D5280",background:NAVY_LT,color:"#E2E8F0",fontSize:"0.62rem",fontFamily:"inherit"}}/>
+                <input value={s.material} onChange={e=>setBucketMaterial(s.id,e.target.value)} onBlur={()=>propagateMaterial(s.id)} onKeyDown={e=>{if(e.key==="Enter")propagateMaterial(s.id);}} placeholder="material…" title="naming this also names unnamed shapes with the same pattern" style={{flex:1,minWidth:0,padding:"0.2rem 0.4rem",borderRadius:5,border:"1px solid #2D5280",background:NAVY_LT,color:"#E2E8F0",fontSize:"0.62rem",fontFamily:"inherit"}}/>
                 {s.page!==pageNum&&<span style={{fontSize:"0.55rem",color:"#475569"}}>p{s.page}</span>}
                 <span onClick={()=>removeBucketShape(s.id)} title="remove" style={{cursor:"pointer",color:"#F87171",fontSize:"0.85rem",fontWeight:700}}>×</span>
               </div>)}
