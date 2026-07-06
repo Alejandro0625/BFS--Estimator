@@ -435,7 +435,13 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     setSnapBusy(true); setSnapMsg("Filling…");
     try{
       const r=await fetch(BACKEND+"/snap-fill",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page:pageNum,point:[p.x,p.y]})}).then(r=>r.json());
-      if(r.status==="ok"){ addBucketShape(r.points,r.area_sf,{holes:r.holes||[],pattern_sig:r.pattern_sig||""}); setSnapMsg(`✓ ${Math.round(r.area_sf).toLocaleString()} SF${(r.holes||[]).length?" net (openings shown cut out)":""}${r.pattern_sig&&r.pattern_sig!=="plain"?" · pattern "+r.pattern_sig:""}`); }
+      if(r.status==="ok"){
+        addBucketShape(r.points,r.area_sf,{holes:r.holes||[],pattern_sig:r.pattern_sig||"",material:r.material||""});
+        (r.siblings||[]).forEach(s=>addBucketShape(s.points,s.area_sf,{holes:s.holes||[],material:r.material||""}));
+        const n=1+(r.siblings||[]).length;
+        const tot=r.pattern_total_sf||r.area_sf;
+        setSnapMsg(`✓ ${n>1?`${n} areas with this pattern · `:""}${Math.round(tot).toLocaleString()} SF${(r.holes||[]).length?" net":""}`);
+      }
       else if(r.status==="leak"){ setCornerMode(true); setCornerPts([]); setSnapMsg("Open field — click each corner (peaks too), then Finish"); }
       else setSnapMsg("Couldn't fill there — try clicking the corners");
     }catch(e){ setSnapMsg("Snap failed — check connection"); }
