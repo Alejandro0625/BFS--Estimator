@@ -19,6 +19,8 @@ const MAT_COLORS = {
   "Return/Trim": "#EC4899", "Other": "#9CA3AF",
 };
 const CLUSTER_COLORS = ["#3B82F6","#F97316","#22C55E","#EC4899","#EAB308","#8B5CF6","#14B8A6","#EF4444"];
+// stable distinct color for materials not in MAT_COLORS (vector/callout names vary per job)
+const hashColor = (s) => { let h=0; for(const ch of String(s||"")) h=(h*31+ch.charCodeAt(0))>>>0; return CLUSTER_COLORS[h%CLUSTER_COLORS.length]; };
 
 /* Default installed rates ($/SF, material+labor). Editable — these are ballpark starting points. */
 const DEFAULT_RATES = {
@@ -1754,7 +1756,7 @@ export default function BFSEstimator() {
 
   const summary=results?()=>{
     const t={};
-    results.takeoffData.forEach(e=>(e.zones||[]).forEach(z=>{const k=dispName(z.category||"Other");if(!t[k])t[k]={net:0,adj:0,color:MAT_COLORS[k]||"#9CA3AF"};t[k].net+=z.netArea||0;t[k].adj+=(z.netArea||0)*1.15;}));
+    results.takeoffData.forEach(e=>(e.zones||[]).forEach(z=>{const k=dispName(z.category||"Other");if(!t[k])t[k]={net:0,adj:0,color:MAT_COLORS[k]||hashColor(k)};t[k].net+=z.netArea||0;t[k].adj+=(z.netArea||0)*1.15;}));
     return t;
   }:null;
   const summaryData = summary ? summary() : null;
@@ -2191,8 +2193,8 @@ export default function BFSEstimator() {
                 <div style={{display:"flex",flexDirection:"column",gap:"0.3rem"}}>
                   {results.legend.map((m,i)=>(
                     <div key={i} style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
-                      <div style={{width:10,height:10,borderRadius:3,background:MAT_COLORS[m.category]||"#9CA3AF",flexShrink:0}}/>
-                      <span style={{fontSize:"0.68rem",color:"#475569"}}><span style={{fontWeight:600,color:"#0F172A"}}>{m.id}</span>: {m.name}</span>
+                      <div style={{width:10,height:10,borderRadius:3,background:MAT_COLORS[m.category]||hashColor(m.name||m.id),flexShrink:0}}/>
+                      <span style={{fontSize:"0.68rem",color:"#475569"}}>{m.id===m.name?<span style={{fontWeight:600,color:"#0F172A"}}>{m.name}</span>:<><span style={{fontWeight:600,color:"#0F172A"}}>{m.id}</span>: {m.name}</>}</span>
                     </div>
                   ))}
                 </div>
@@ -2311,7 +2313,7 @@ export default function BFSEstimator() {
                     {warnLines.length>0&&<div style={{padding:"0.55rem 1.25rem",fontSize:"0.74rem",color:"#92400E",background:"#FFFBEB",borderBottom:"1px solid #FEF3C7",lineHeight:1.5}}>⚠ {warnLines.join(" · ")}</div>}
                     {(elev.zones||[]).map((z,zi)=>(
                       <div key={zi} style={{display:"flex",alignItems:"center",gap:"0.8rem",padding:"0.85rem 1.25rem",borderTop:zi?"1px solid #F5F8FB":"none"}}>
-                        <div style={{width:13,height:13,borderRadius:4,background:MAT_COLORS[z.category]||"#9CA3AF",flexShrink:0}}/>
+                        <div style={{width:13,height:13,borderRadius:4,background:MAT_COLORS[z.category]||hashColor(z.materialName||z.category),flexShrink:0}}/>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{fontSize:"0.95rem",fontWeight:600,color:"#1E293B"}}>{z.materialName}{z.materialId?<span style={{fontSize:"0.7rem",fontWeight:700,color:BLUE,marginLeft:8}}>{z.materialId}</span>:null}</div>
                           {(z.totalOpeningArea||0)>0&&<div style={{fontSize:"0.7rem",color:"#94A3B8",marginTop:2}}>{Math.round(z.grossArea||0).toLocaleString()} gross − {Math.round(z.totalOpeningArea||0).toLocaleString()} openings</div>}
