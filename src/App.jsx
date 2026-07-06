@@ -1222,7 +1222,7 @@ function QueueView({ onOpen }) {
         if (s.status === "done") {
           clearInterval(iv); delete pollingRef.current[jobId]; busyRef.current = false;
           patch(id, { status: "done", progress: 100, stage: "Complete",
-            results: { legend: s.legend || [], takeoffData: s.takeoffData || [], scheduleData: s.scheduleData || null, projName: (s.projName) || "", jobId } });
+            results: { legend: s.legend || [], takeoffData: s.takeoffData || [], scheduleData: s.scheduleData || null, drawingSchedule: s.drawingSchedule || null, projName: (s.projName) || "", jobId } });
         } else if (s.status === "error") {
           clearInterval(iv); delete pollingRef.current[jobId]; busyRef.current = false;
           patch(id, { status: "error", error: s.error || "Analysis failed" });
@@ -1687,7 +1687,7 @@ export default function BFSEstimator() {
         if(data.phase)setPhase(data.phase);
         if(data.status==="done"){
           clearInterval(pollRef.current);
-          setResults({legend:data.legend||[],takeoffData:data.takeoffData||[],scheduleData:data.scheduleData||null,projName:file?.name?.replace(".pdf","")||"Project",jobId:id});
+          setResults({legend:data.legend||[],takeoffData:data.takeoffData||[],scheduleData:data.scheduleData||null,drawingSchedule:data.drawingSchedule||null,projName:file?.name?.replace(".pdf","")||"Project",jobId:id});
           setPhase("done");setProgress({label:"Complete",pct:100});
         }else if(data.status==="error"){clearInterval(pollRef.current);setErrMsg(data.error||"Unknown error");setPhase("error");}
       }catch(e){console.log("poll",e.message);}
@@ -1762,7 +1762,7 @@ export default function BFSEstimator() {
     if(!results)return;
     const id=results.jobId||String(Date.now());
     const rec={ id, projName:results.projName, savedAt:Date.now(),
-      data:{ legend:results.legend, takeoffData:results.takeoffData, scheduleData:results.scheduleData||null, projName:results.projName, jobId:results.jobId },
+      data:{ legend:results.legend, takeoffData:results.takeoffData, scheduleData:results.scheduleData||null, drawingSchedule:results.drawingSchedule||null, projName:results.projName, jobId:results.jobId },
       assignments, pricing, hiddenIds, deletedStack, groupRename };
     try{ localStorage.setItem("bfs_bid_"+id, JSON.stringify(rec)); refreshSaved(); }
     catch(e){ alert("Could not save bid: "+e.message); }
