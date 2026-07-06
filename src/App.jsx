@@ -1682,6 +1682,21 @@ export default function BFSEstimator() {
     if(missWarnN>0) warns.push("• "+missWarnN+" elevation(s) look UNDER-marked vs the building face — a wall may be missing from the takeoff.");
     return warns.length===0 || window.confirm("⚠ CHECK BEFORE BIDDING\n\n"+warns.join("\n")+"\n\nExport anyway?");
   };
+  // THE ANSWER KEY: every export = a finished, human-confirmed takeoff. Save the complete
+  // final state as training gold — this is what eventually makes the auto-takeoff fully
+  // autonomous (the estimator's job converges to pricing only).
+  const captureFinal=(kind)=>{
+    if(!results?.jobId) return;
+    try{
+      fetch(BACKEND+"/learn",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+        jobId:results.jobId, source:"final-"+kind, projName:results.projName,
+        takeoffData:(results.takeoffData||[]).map(e=>({pageNumber:e.pageNumber,source:e.source,scale:e.scale,
+          zones:(e.zones||[]).map(z=>({materialName:z.materialName,category:z.category,netArea:z.netArea,grossArea:z.grossArea,totalOpeningArea:z.totalOpeningArea})),
+          linearItems:e.linearItems||[]})),
+        assignments, groupRename,
+      })}).catch(()=>{});
+    }catch{}
+  };
   const exportExcel=()=>{
     if(!results)return;
     if(!moneyGuard())return;
@@ -1689,6 +1704,7 @@ export default function BFSEstimator() {
     results.takeoffData.forEach(e=>(e.zones||[]).forEach(z=>{const k=dispName(z.materialName||z.category||"Panel");if(!mt[k])mt[k]={name:k,sf:0};mt[k].sf+=z.netArea||0;}));
     const wb=buildExcel(results.projName||"Project",Object.values(mt));
     XLSX.writeFile(wb,"BFS_Takeoff_"+(results.projName||"Project").replace(/\s+/g,"_")+".xlsx");
+    captureFinal("takeoff");
   };
 
   const exportPDF=async()=>{
@@ -1754,6 +1770,7 @@ export default function BFSEstimator() {
     const mats=priceRows.map(r=>({name:r.cat,sf:r.net*(1+r.wastePct/100)/(1+pricing.wastePct/100),rate:r.rate}));  // per-material waste
     const wb=buildExcel(results.projName||"Project",mats,{wastePct:pricing.wastePct,marginPct:pricing.marginPct});
     XLSX.writeFile(wb,"BFS_Bid_"+(results.projName||"Project").replace(/\s+/g,"_")+".xlsx");
+    captureFinal("bid");
   };
   // ── Pre-bid reliability checks ──
   const reviewElevs = (results?.takeoffData||[]).filter(e=>(e.zones||[]).some(z=>(z.netArea||0)>0));
@@ -1789,6 +1806,7 @@ export default function BFSEstimator() {
                 ...customLines.filter(l=>(l.name||l.rate)).map(l=>({name:l.name||"Line item",sf:(l.qty||0)/w,rate:l.rate||0}))];
     const wb=buildExcel(results.projName||"Project",mats,{wastePct:pricing.wastePct,marginPct:pricing.marginPct});
     XLSX.writeFile(wb,"BFS_Budget_"+(results.projName||"Project").replace(/\s+/g,"_")+".xlsx");
+    captureFinal("budget");
   };
   // ── Rate cards: save the rates you set, reuse them on the next job (per firm/job) ──
   const persistRateCards=rc=>{ setRateCards(rc); try{ localStorage.setItem("bfs_rate_cards",JSON.stringify(rc)); }catch{} };
