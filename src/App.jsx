@@ -239,6 +239,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   const [selGroups, setSelGroups] = useState({});   // { group_id: materialName }
   const [groupBusy, setGroupBusy] = useState(false);
   const [hiddenIds, setHiddenIds] = useState({});   // "page:id" -> true — highlights the estimator DELETED (junk detections)
+  const [deletedStack, setDeletedStack] = useState([]);   // undo history: exact zone snapshots per delete
   const imgRef = useRef();
   const svgRef = useRef();
   const elevations = results.takeoffData.filter(e => e.pageNumber);
@@ -261,7 +262,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
 
   // NEW JOB → clear all per-job marks (bucket fills, group picks). Without this, shapes from the
   // previous drawing would silently flow into the next job's totals/Excel — a money bug.
-  useEffect(()=>{ setBucketShapes([]); setSelGroups({}); setPreviewGroups([]); setSnapMsg(""); setPageScales({}); setHiddenIds({}); }, [results.jobId]);
+  useEffect(()=>{ setBucketShapes([]); setSelGroups({}); setPreviewGroups([]); setSnapMsg(""); setPageScales({}); setHiddenIds({}); setDeletedStack([]); }, [results.jobId]);
   // Pull shared learning from the server into local memory (so repeats are pre-identified)
   useEffect(()=>{
     fetch(BACKEND+"/recall").then(r=>r.ok?r.json():null).then(d=>{
@@ -340,6 +341,9 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     if(!selectedZones.length) return;
     const byMat = {};
     selectedZones.forEach(z=>{ const k=z.material||z.category||""; byMat[k]=(byMat[k]||0)+(z.area_sf||0); });
+    // undo snapshot: the exact zones array of this page before the subtraction
+    const pageBefore = (results.takeoffData||[]).find(e=>e.pageNumber===pageNum);
+    setDeletedStack(prev=>[...prev,{ page:pageNum, ids:selectedZones.map(z=>z.id), zonesBefore:(pageBefore?.zones||[]).map(z=>({...z})) }]);
     setHiddenIds(prev=>{ const n={...prev}; selectedZones.forEach(z=>{ n[pageNum+":"+z.id]=true; }); return n; });
     setAssignments(prev=>{ const n={...prev}; selectedIds.forEach(id=>delete n[assignKey(id)]); return n; });
     if(setResults) setResults(prev=>({ ...prev, takeoffData: prev.takeoffData.map(e=>{
@@ -355,6 +359,16 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     // teach the flywheel: this pattern was NOT cladding here
     if(results?.jobId) fetch(BACKEND+"/learn",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page:pageNum,source:"delete",shapes:selectedZones.map(z=>({points:z.points,name:"NOT-CLADDING",color:z.fill_color,type:"delete"}))})}).catch(()=>{});
     setActiveGroup(null);
+  };
+  // Undo the last delete: restore the exact zone numbers and un-hide the shapes
+  const undoDelete = () => {
+    setDeletedStack(prev=>{
+      if(!prev.length) return prev;
+      const last = prev[prev.length-1];
+      setHiddenIds(h=>{ const n={...h}; last.ids.forEach(id=>delete n[last.page+":"+id]); return n; });
+      if(setResults) setResults(r=>({ ...r, takeoffData: r.takeoffData.map(e=>e.pageNumber===last.page?{...e, zones:last.zonesBefore.map(z=>({...z}))}:e) }));
+      return prev.slice(0,-1);
+    });
   };
   const exportInteractiveExcel = () => {
     const badScale=(results.takeoffData||[]).filter(e=>(e.zones||[]).some(z=>(z.netArea||0)>0)&&(e.scaleSource==="default"||(!e.verifiedScale&&!e.scale))).length;
@@ -506,6 +520,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
               :`${displayZones.length} surfaces`}
           </div>
           <div style={{fontSize:"0.62rem",color:"#5E7BA0",padding:"0.3rem 0.6rem",borderRadius:20,border:"1px dashed #2D5280"}}>🔍 wheel = zoom · shift-drag = pan</div>
+          {deletedStack.length>0&&<button onClick={undoDelete} style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid #B45309",background:"#451A03",color:"#FCD34D",cursor:"pointer",fontFamily:"inherit"}}>↩ Undo delete ({deletedStack.length})</button>}
           <button onClick={()=>{setCalibMode(m=>!m);setCalibPts([]);}} style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid "+(calibMode?"#EF4444":"#2D5280"),background:calibMode?"#7F1D1D":NAVY_LT,color:calibMode?"#FCA5A5":"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>📏 {calibMode?(calibPts.length<2?`Click point ${calibPts.length+1} of 2`:"2 points set"):"Calibrate scale"}</button>
           {calibFt&&!calibMode&&<div style={{fontSize:"0.62rem",padding:"0.3rem 0.6rem",borderRadius:20,background:"#064E3B",color:"#6EE7B7",border:"1px solid #065F46"}}>✓ Calibrated · {calibFt.toFixed(2)} ft/in<span onClick={()=>setCalibFt(null)} style={{cursor:"pointer",textDecoration:"underline",marginLeft:6}}>reset</span></div>}
           {calibMode&&calibPts.length===2&&<div style={{display:"flex",alignItems:"center",gap:"0.35rem",fontSize:"0.65rem",color:"#CBD5E1"}}>
