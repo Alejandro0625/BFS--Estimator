@@ -2180,6 +2180,26 @@ export default function BFSEstimator() {
               </div>
             )}
 
+            {/* Architect's own material schedule read off the drawing — a sanity-check target */}
+            {results.drawingSchedule&&results.drawingSchedule.items&&results.drawingSchedule.items.length>0&&(
+              <div>
+                <div style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"0.6rem"}}>📐 Drawing's own schedule</div>
+                <div style={{border:"1px solid #DDE7F2",borderRadius:8,overflow:"hidden"}}>
+                  {results.drawingSchedule.items.map((it,i)=>(
+                    <div key={i} style={{display:"flex",justifyContent:"space-between",gap:"0.4rem",padding:"0.4rem 0.6rem",background:i%2?"#F8FAFC":"#fff",borderTop:i?"1px solid #F1F5F9":"none"}}>
+                      <span style={{fontSize:"0.62rem",color:"#475569",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={it.material}><b style={{color:BLUE}}>{it.key}</b> {it.material}</span>
+                      <span style={{fontSize:"0.66rem",fontWeight:700,color:"#0F172A",whiteSpace:"nowrap"}}>{it.sf.toLocaleString()}</span>
+                    </div>
+                  ))}
+                  <div style={{display:"flex",justifyContent:"space-between",padding:"0.45rem 0.6rem",background:BLUE_PALE,borderTop:"1px solid "+BLUE+"30"}}>
+                    <span style={{fontSize:"0.62rem",color:BLUE_DARK,fontWeight:700,textTransform:"uppercase"}}>Stated total</span>
+                    <span style={{fontSize:"0.72rem",fontWeight:800,color:BLUE}}>{results.drawingSchedule.total.toLocaleString()} SF</span>
+                  </div>
+                </div>
+                <div style={{fontSize:"0.56rem",color:"#94A3B8",marginTop:"0.35rem",lineHeight:1.4}}>The architect's stated quantities, read straight off the drawing — check your takeoff against them.</div>
+              </div>
+            )}
+
             {/* Openings from schedule */}
             {results.scheduleData&&results.scheduleData.total_opening_sf>0&&(
               <div>
