@@ -1363,18 +1363,33 @@ function ManualView({ results, BACKEND }) {
   const byColor = {};
   shapes.forEach(s => { if (!byColor[s.color]) byColor[s.color] = { sf: 0, n: 0 }; byColor[s.color].sf += (s.type === "cut" ? -1 : 1) * areaSF(s); byColor[s.color].n++; });
 
-  // snap a click to the drawing's nearest real CAD corner (Bluebeam Area-tool behavior) — within ~14px
-  const snapTo = (nx, ny) => {
-    let best = null, bd = 14;
+  // Bluebeam-style object snap: corners first, then ortho-lock to the previous point.
+  // Radius shrinks as you zoom in (constant SCREEN feel, precise when zoomed).
+  const snapEval = (nx, ny) => {
+    const tol = 14 / (zoom.view?.k || 1);
+    let best = null, bd = tol;
     for (const c of snapPts) {
       const d = Math.hypot((c[0] - nx) * stageW, (c[1] - ny) * stageH);
       if (d < bd) { bd = d; best = c; }
     }
-    return best || [nx, ny];
+    if (best) return { pt: [best[0], best[1]], kind: "corner" };
+    const prev = draft.length ? draft[draft.length - 1] : null;
+    if (prev) {  // 90° ortho lock like Bluebeam's axis cue
+      const dx = Math.abs(nx - prev[0]) * stageW, dy = Math.abs(ny - prev[1]) * stageH;
+      if (dx < tol && dy > tol) return { pt: [prev[0], ny], kind: "ortho" };
+      if (dy < tol && dx > tol) return { pt: [nx, prev[1]], kind: "ortho" };
+    }
+    return { pt: [nx, ny], kind: null };
+  };
+  const [hoverSnap, setHoverSnap] = useState(null);   // live indicator: what the next click will lock to
+  const onHover = e => {
+    const st = e.target.getStage(); const pos = zoom.localPos(st); if (!pos) return;
+    const s = snapEval(pos.x / stageW, pos.y / stageH);
+    setHoverSnap(s.kind ? s : null);
   };
   const onDown = e => {
     const st = e.target.getStage(); const pos = zoom.localPos(st); if (!pos) return;
-    const [nx, ny] = snapTo(pos.x / stageW, pos.y / stageH);  // lock to the exact corner like Bluebeam
+    const [nx, ny] = snapEval(pos.x / stageW, pos.y / stageH).pt;  // lock to the exact corner like Bluebeam
     if (mode === "calib") { setCalibPts(prev => [...prev, [nx, ny]].slice(-2)); return; }
     setDraft(prev => [...prev, [nx, ny]]);
   };
@@ -1447,7 +1462,7 @@ function ManualView({ results, BACKEND }) {
         <div style={{ fontSize: "0.64rem", color: "#64748B", marginBottom: "0.65rem" }}>
           {!calib ? "① Set scale first: click 'Scale', click two points a known distance apart, type the feet." : mode === "cut" ? "Cut-out mode: click around a window/door, then Finish — it subtracts." : "Click around the wall, then Finish. SF uses your scale."}<span style={{ color: "#94A3B8" }}> · Ctrl+Z undo · Ctrl+Y redo · Esc cancels the shape · wheel = zoom, drag = pan when zoomed</span>
         </div>
-        {img ? <div style={{ display:"inline-block", borderRadius:10, overflow:"hidden", boxShadow:"0 12px 40px -14px rgba(15,23,42,0.30), 0 0 0 1px #E1E8F0" }}><Stage width={stageW} height={stageH} {...zoom.stageProps} onClick={onDown} onTap={onDown}>
+        {img ? <div style={{ display:"inline-block", borderRadius:10, overflow:"hidden", boxShadow:"0 12px 40px -14px rgba(15,23,42,0.30), 0 0 0 1px #E1E8F0" }}><Stage width={stageW} height={stageH} {...zoom.stageProps} onClick={onDown} onTap={onDown} onMouseMove={onHover} onMouseLeave={()=>setHoverSnap(null)}>
           <Layer>
             <KImage image={img} width={stageW} height={stageH} />
             {zoom.hiResNode}
@@ -1462,6 +1477,13 @@ function ManualView({ results, BACKEND }) {
             {draft.map(([nx, ny], i) => <Circle key={i} x={nx * stageW} y={ny * stageH} radius={4} fill="#F59E0B" />)}
             {calibPts.map(([nx, ny], i) => <Circle key={"c" + i} x={nx * stageW} y={ny * stageH} radius={5} fill="#10B981" stroke="#fff" strokeWidth={1} />)}
             {calibPts.length === 2 && <Line points={calibPts.flatMap(([nx, ny]) => [nx * stageW, ny * stageH])} stroke="#10B981" strokeWidth={2} />}
+            {/* Bluebeam-style snap cue: shows the exact point the next click will lock to */}
+            {hoverSnap && (() => { const k = zoom.view?.k || 1; const x = hoverSnap.pt[0] * stageW, y = hoverSnap.pt[1] * stageH, r = 7 / k;
+              return <>
+                <Circle x={x} y={y} radius={r} stroke={hoverSnap.kind === "corner" ? "#22C55E" : "#F59E0B"} strokeWidth={2 / k} listening={false} />
+                <Line points={[x - r * 1.8, y, x + r * 1.8, y]} stroke={hoverSnap.kind === "corner" ? "#22C55E" : "#F59E0B"} strokeWidth={1 / k} listening={false} />
+                <Line points={[x, y - r * 1.8, x, y + r * 1.8]} stroke={hoverSnap.kind === "corner" ? "#22C55E" : "#F59E0B"} strokeWidth={1 / k} listening={false} />
+              </>; })()}
           </Layer>
         </Stage></div> : <div style={{ color: "#94A3B8", fontSize: "0.82rem", marginTop: "3rem" }}>{elevations.length ? "Loading drawing…" : "Run a drawing in the Takeoff tab first, then edit it here."}</div>}
       </div>
