@@ -213,7 +213,7 @@ function DeepZoom({ BACKEND, jobId, pageNum, children }) {
   );
 }
 
-function InteractiveView({ results, BACKEND, assignments, setAssignments, groupRename={}, setGroupRename=()=>{} }) {
+function InteractiveView({ results, BACKEND, assignments, setAssignments, groupRename={}, setGroupRename=()=>{}, setResults }) {
   const [elevIdx, setElevIdx] = useState(0);
   const [pageImage, setPageImage] = useState(null);
   const [imgLoaded, setImgLoaded] = useState(false);
@@ -238,6 +238,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   const [previewGroups, setPreviewGroups] = useState([]);
   const [selGroups, setSelGroups] = useState({});   // { group_id: materialName }
   const [groupBusy, setGroupBusy] = useState(false);
+  const [hiddenIds, setHiddenIds] = useState({});   // "page:id" -> true — highlights the estimator DELETED (junk detections)
   const imgRef = useRef();
   const svgRef = useRef();
   const elevations = results.takeoffData.filter(e => e.pageNumber);
@@ -260,7 +261,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
 
   // NEW JOB → clear all per-job marks (bucket fills, group picks). Without this, shapes from the
   // previous drawing would silently flow into the next job's totals/Excel — a money bug.
-  useEffect(()=>{ setBucketShapes([]); setSelGroups({}); setPreviewGroups([]); setSnapMsg(""); setPageScales({}); }, [results.jobId]);
+  useEffect(()=>{ setBucketShapes([]); setSelGroups({}); setPreviewGroups([]); setSnapMsg(""); setPageScales({}); setHiddenIds({}); }, [results.jobId]);
   // Pull shared learning from the server into local memory (so repeats are pre-identified)
   useEffect(()=>{
     fetch(BACKEND+"/recall").then(r=>r.ok?r.json():null).then(d=>{
@@ -269,10 +270,11 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   },[BACKEND]);
 
   const polyMethod = pagePolygons[0]?.source||(pagePolygons.length>0?"vector":"box");
-  const rawZones = pagePolygons.length>0 ? pagePolygons : (elev?.zones||[]).map((z,i)=>({
+  const rawZonesAll = pagePolygons.length>0 ? pagePolygons : (elev?.zones||[]).map((z,i)=>({
     id:i,points:[[z.x0pct/100,z.y0pct/100],[z.x1pct/100,z.y0pct/100],[z.x1pct/100,z.y1pct/100],[z.x0pct/100,z.y1pct/100]],
     area_sf:z.netArea||0,cx:(z.x0pct+z.x1pct)/200,cy:(z.y0pct+z.y1pct)/200,source:"box",
   }));
+  const rawZones = rawZonesAll.filter(z=>!hiddenIds[pageNum+":"+z.id]);   // deleted highlights stay gone
   // When the user calibrates the scale, recompute SF from polygon geometry — but NEVER for
   // zones whose SF is the estimator's own measured label (sf_exact) or texture net SF. Those are ground truth.
   const displayZones = calibFt
@@ -332,6 +334,28 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     setActiveGroup(null);
   };
   const removeGroup = () => { setAssignments(prev=>{const n={...prev};selectedIds.forEach(id=>delete n[assignKey(id)]);return n;}); };
+  // DELETE a bad highlight: hides the shapes AND subtracts their SF from the page's real
+  // takeoff zones (summary/pricing/Excel follow) — junk detections can't pollute the bid.
+  const deleteGroup = () => {
+    if(!selectedZones.length) return;
+    const byMat = {};
+    selectedZones.forEach(z=>{ const k=z.material||z.category||""; byMat[k]=(byMat[k]||0)+(z.area_sf||0); });
+    setHiddenIds(prev=>{ const n={...prev}; selectedZones.forEach(z=>{ n[pageNum+":"+z.id]=true; }); return n; });
+    setAssignments(prev=>{ const n={...prev}; selectedIds.forEach(id=>delete n[assignKey(id)]); return n; });
+    if(setResults) setResults(prev=>({ ...prev, takeoffData: prev.takeoffData.map(e=>{
+      if(e.pageNumber!==pageNum) return e;
+      const zones=(e.zones||[]).map(z=>({...z}));
+      Object.entries(byMat).forEach(([mat,sf])=>{
+        let z = zones.find(zz=>zz.materialName===mat||zz.category===mat);
+        if(!z&&zones.length===1) z=zones[0];
+        if(z){ z.netArea=Math.max(0,(z.netArea||0)-sf); z.grossArea=Math.max(0,(z.grossArea||0)-sf); }
+      });
+      return {...e, zones: zones.filter(z=>(z.netArea||0)>1)};
+    })}));
+    // teach the flywheel: this pattern was NOT cladding here
+    if(results?.jobId) fetch(BACKEND+"/learn",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page:pageNum,source:"delete",shapes:selectedZones.map(z=>({points:z.points,name:"NOT-CLADDING",color:z.fill_color,type:"delete"}))})}).catch(()=>{});
+    setActiveGroup(null);
+  };
   const exportInteractiveExcel = () => {
     const badScale=(results.takeoffData||[]).filter(e=>(e.zones||[]).some(z=>(z.netArea||0)>0)&&(e.scaleSource==="default"||(!e.verifiedScale&&!e.scale))).length;
     if(badScale>0 && !window.confirm("⚠ "+badScale+" page(s) used a DEFAULT scale (couldn't read it) — SF could be far off. Calibrate first.\n\nExport anyway?")) return;
@@ -578,6 +602,8 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
               </div>
             ))}
             {selectedIds.some(id=>getAssignment(id))&&<div onClick={removeGroup} style={{padding:"0.45rem",marginTop:"0.4rem",textAlign:"center",fontSize:"0.65rem",color:"#F87171",cursor:"pointer",border:"1px solid #7F1D1D",borderRadius:6}}>Remove tag from this hatch</div>}
+            <div onClick={deleteGroup} style={{padding:"0.5rem",marginTop:"0.4rem",textAlign:"center",fontSize:"0.68rem",fontWeight:700,color:"#fff",cursor:"pointer",background:"linear-gradient(180deg,#EF4444,#C0392B)",borderRadius:7}}>🗑 Delete this highlight ({selectedZones.length} area{selectedZones.length!==1?"s":""} · −{Math.round(selectedSF).toLocaleString()} SF)</div>
+            <div style={{fontSize:"0.56rem",color:"#64748B",marginTop:"0.3rem",lineHeight:1.4,textAlign:"center"}}>Wrong detection? Deleting removes it from the takeoff, the totals and the Excel.</div>
             <div onClick={()=>setActiveGroup(null)} style={{padding:"0.45rem",marginTop:"0.3rem",textAlign:"center",fontSize:"0.65rem",color:"#64748B",cursor:"pointer",border:"1px solid #2D5280",borderRadius:6}}>Deselect</div>
           </>
         ):(
@@ -2134,7 +2160,7 @@ export default function BFSEstimator() {
           {/* Main */}
           <main style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
             {viewMode==="interactive"&&(
-              <div style={{flex:1,overflow:"hidden"}}><InteractiveView results={results} BACKEND={BACKEND} assignments={assignments} setAssignments={setAssignments} groupRename={groupRename} setGroupRename={setGroupRename}/></div>
+              <div style={{flex:1,overflow:"hidden"}}><InteractiveView results={results} BACKEND={BACKEND} assignments={assignments} setAssignments={setAssignments} groupRename={groupRename} setGroupRename={setGroupRename} setResults={setResults}/></div>
             )}
             {viewMode==="edit"&&(
               <div style={{flex:1,overflow:"hidden"}}><EditorView results={results} BACKEND={BACKEND} setResults={setResults}/></div>
