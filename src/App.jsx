@@ -213,7 +213,7 @@ function DeepZoom({ BACKEND, jobId, pageNum, children }) {
   );
 }
 
-function InteractiveView({ results, BACKEND, assignments, setAssignments, groupRename={}, setGroupRename=()=>{}, setResults }) {
+function InteractiveView({ results, BACKEND, assignments, setAssignments, groupRename={}, setGroupRename=()=>{}, setResults, hiddenIds={}, setHiddenIds=()=>{}, deletedStack=[], setDeletedStack=()=>{} }) {
   const [elevIdx, setElevIdx] = useState(0);
   const [pageImage, setPageImage] = useState(null);
   const [imgLoaded, setImgLoaded] = useState(false);
@@ -238,8 +238,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   const [previewGroups, setPreviewGroups] = useState([]);
   const [selGroups, setSelGroups] = useState({});   // { group_id: materialName }
   const [groupBusy, setGroupBusy] = useState(false);
-  const [hiddenIds, setHiddenIds] = useState({});   // "page:id" -> true — highlights the estimator DELETED (junk detections)
-  const [deletedStack, setDeletedStack] = useState([]);   // undo history: exact zone snapshots per delete
+  // hiddenIds / deletedStack are LIFTED to the parent so deletes save + restore with the bid
   const imgRef = useRef();
   const svgRef = useRef();
   const elevations = results.takeoffData.filter(e => e.pageNumber);
@@ -262,7 +261,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
 
   // NEW JOB → clear all per-job marks (bucket fills, group picks). Without this, shapes from the
   // previous drawing would silently flow into the next job's totals/Excel — a money bug.
-  useEffect(()=>{ setBucketShapes([]); setSelGroups({}); setPreviewGroups([]); setSnapMsg(""); setPageScales({}); setHiddenIds({}); setDeletedStack([]); }, [results.jobId]);
+  useEffect(()=>{ setBucketShapes([]); setSelGroups({}); setPreviewGroups([]); setSnapMsg(""); setPageScales({}); }, [results.jobId]);
   // Pull shared learning from the server into local memory (so repeats are pre-identified)
   useEffect(()=>{
     fetch(BACKEND+"/recall").then(r=>r.ok?r.json():null).then(d=>{
@@ -1557,6 +1556,8 @@ export default function BFSEstimator() {
   const [rateCardName, setRateCardName] = useState("");
   const [assignments, setAssignments] = useState({});
   const [groupRename, setGroupRename] = useState({});   // {backendGroupName: estimator name} — propagates across all pages of a job
+  const [hiddenIds, setHiddenIds] = useState({});       // deleted highlights — lifted here so they SAVE with the bid
+  const [deletedStack, setDeletedStack] = useState([]); // undo history for deletes (persists with the bid too)
 
   // ── UI polish: load real fonts + global interactions (the app referenced 'Inter' but never loaded it) ──
   useEffect(() => {
@@ -1662,7 +1663,7 @@ export default function BFSEstimator() {
 
   const run = async()=>{
     if(!file)return;
-    setPhase("running");setLog([]);setErrMsg("");setResults(null);setAssignments({});seenLogs.current=0;
+    setPhase("running");setLog([]);setErrMsg("");setResults(null);setAssignments({});setHiddenIds({});setDeletedStack([]);seenLogs.current=0;
     setPricing(p=>({...p, sfOverride:{}, customLines:[]}));  // per-JOB numbers must never carry into the next bid (rates/waste/margin persist as the working rate card)
     try{
       setLog([{msg:"Uploading PDF...",level:"info"}]);
@@ -1729,13 +1730,14 @@ export default function BFSEstimator() {
     const id=results.jobId||String(Date.now());
     const rec={ id, projName:results.projName, savedAt:Date.now(),
       data:{ legend:results.legend, takeoffData:results.takeoffData, scheduleData:results.scheduleData||null, projName:results.projName, jobId:results.jobId },
-      assignments, pricing };
+      assignments, pricing, hiddenIds, deletedStack, groupRename };
     try{ localStorage.setItem("bfs_bid_"+id, JSON.stringify(rec)); refreshSaved(); }
     catch(e){ alert("Could not save bid: "+e.message); }
   };
   const loadBid=rec=>{
     setResults(rec.data); setAssignments(rec.assignments||{});
     setPricing(rec.pricing||{rates:{},wastePct:15,marginPct:20});
+    setHiddenIds(rec.hiddenIds||{}); setDeletedStack(rec.deletedStack||[]); setGroupRename(rec.groupRename||{});
     setPhase("done"); setViewMode("table"); setFile(null);
   };
   const deleteBid=(id,ev)=>{ if(ev)ev.stopPropagation(); try{ localStorage.removeItem("bfs_bid_"+id); }catch{} refreshSaved(); };
@@ -1855,7 +1857,7 @@ export default function BFSEstimator() {
               <button onClick={exportExcel} style={{padding:"0.45rem 1rem",background:"transparent",color:"rgba(255,255,255,0.7)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↓ Excel</button>
               <button onClick={exportPDF} disabled={pdfLoading} style={{padding:"0.45rem 1rem",background:"linear-gradient(180deg,#5A92D2,#3F79BC)",color:"#fff",border:"none",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↓ {pdfLoading?"Generating...":"Evidence PDF"}</button>
               <button onClick={saveBid} style={{padding:"0.45rem 1rem",background:"transparent",color:"rgba(255,255,255,0.7)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>💾 Save</button>
-              <button onClick={()=>{setFile(null);setPhase("idle");setResults(null);setLog([]);setAssignments({});}} style={{padding:"0.45rem 1rem",background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.6)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↺ New</button>
+              <button onClick={()=>{setFile(null);setPhase("idle");setResults(null);setLog([]);setAssignments({});setHiddenIds({});setDeletedStack([]);}} style={{padding:"0.45rem 1rem",background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.6)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↺ New</button>
             </div>
           )}
         </div>
@@ -2215,7 +2217,7 @@ export default function BFSEstimator() {
           {/* Main */}
           <main style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
             {viewMode==="interactive"&&(
-              <div style={{flex:1,overflow:"hidden"}}><InteractiveView results={results} BACKEND={BACKEND} assignments={assignments} setAssignments={setAssignments} groupRename={groupRename} setGroupRename={setGroupRename} setResults={setResults}/></div>
+              <div style={{flex:1,overflow:"hidden"}}><InteractiveView results={results} BACKEND={BACKEND} assignments={assignments} setAssignments={setAssignments} groupRename={groupRename} setGroupRename={setGroupRename} setResults={setResults} hiddenIds={hiddenIds} setHiddenIds={setHiddenIds} deletedStack={deletedStack} setDeletedStack={setDeletedStack}/></div>
             )}
             {viewMode==="edit"&&(
               <div style={{flex:1,overflow:"hidden"}}><EditorView results={results} BACKEND={BACKEND} setResults={setResults}/></div>
