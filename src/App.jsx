@@ -567,10 +567,12 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
                 const dimmed=activeGroup&&!isSel;
                 const pts=toSVGPoints(zone.points);
                 const lx=zone.cx*pageDims.width,ly=zone.cy*pageDims.height;
-                const showLabel=!dimmed&&(a||isSel||zone.source==="bluebeam"||zone.source==="claude_vision");
+                const showLabel=!dimmed&&(zone.area_sf||0)>0;   // every surface carries its SF — same black-pill style as bucket fills
+                const labelTxt=zone.source==="claude_vision"&&!a?zone.material_type:Math.round(zone.area_sf).toLocaleString()+" SF";
+                const pillW=Math.max(64,(labelTxt||"").length*(pageDims.width/130));
                 return <g key={zone.id} style={{cursor:(calibMode||bucketMode)?"crosshair":"pointer",pointerEvents:groupMode?"none":"auto"}} onClick={e=>{if(calibMode||bucketMode||groupMode)return;e.stopPropagation();const k=gkey(zone);setActiveGroup(activeGroup===k?null:k);}}>
                   <polygon points={pts} fill={color} fillOpacity={dimmed?0.06:isSel?0.6:zone.source==="bluebeam"?0.45:a?0.38:0.22} stroke={isSel?"#fff":color} strokeWidth={isSel?2.5:1.5} strokeOpacity={dimmed?0.25:0.9}/>
-                  {showLabel&&<><rect x={lx-32} y={ly-9} width={64} height={18} fill="rgba(0,0,0,0.8)" rx={4}/><text x={lx} y={ly+2} textAnchor="middle" dominantBaseline="middle" fill="white" fontSize={pageDims.width/75} fontFamily="Inter,Arial" fontWeight="bold">{zone.source==="claude_vision"&&!a?zone.material_type:Math.round(zone.area_sf)+" SF"}</text></>}
+                  {showLabel&&<><rect x={lx-pillW/2} y={ly-10} width={pillW} height={20} fill="rgba(0,0,0,0.82)" rx={5}/><text x={lx} y={ly+2} textAnchor="middle" dominantBaseline="middle" fill={isSel?"#6EE7B7":"#FFFFFF"} fontSize={pageDims.width/75} fontFamily="Inter,Arial" fontWeight="bold">{labelTxt}</text></>}
                 </g>;
               })}
               {calibPts.length===2&&<line x1={calibPts[0].x*pageDims.width} y1={calibPts[0].y*pageDims.height} x2={calibPts[1].x*pageDims.width} y2={calibPts[1].y*pageDims.height} stroke="#EF4444" strokeWidth={pageDims.width/350} strokeDasharray={pageDims.width/90}/>}
@@ -2068,6 +2070,11 @@ export default function BFSEstimator() {
             )}
 
             {/* Feature pills */}
+            {!file&&!isRunning&&(
+              <div style={{textAlign:"center",fontSize:"0.68rem",color:"rgba(255,255,255,0.42)",lineHeight:1.6}}>
+                💡 Tip: for unmarked sets, upload just the <b style={{color:"rgba(255,255,255,0.65)"}}>elevation sheets</b> — cleanest auto-read. Marked-up Bluebeam files come back exact.
+              </div>
+            )}
             {!file&&!isRunning&&(
               <div style={{display:"flex",justifyContent:"center",gap:"0.5rem",flexWrap:"wrap"}}>
                 {["Reads drawing geometry","Deep zoom","Elevations","Excel Export","Evidence PDF"].map(tag=>(
