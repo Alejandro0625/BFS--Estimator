@@ -215,7 +215,7 @@ function DeepZoom({ BACKEND, jobId, pageNum, children }) {
   );
 }
 
-function InteractiveView({ results, BACKEND, assignments, setAssignments, groupRename={}, setGroupRename=()=>{}, setResults, hiddenIds={}, setHiddenIds=()=>{}, deletedStack=[], setDeletedStack=()=>{} }) {
+function InteractiveView({ results, BACKEND, assignments, setAssignments, groupRename={}, setGroupRename=()=>{}, setResults, hiddenIds={}, setHiddenIds=()=>{}, deletedStack=[], setDeletedStack=()=>{}, bucketShapes=[], setBucketShapes=()=>{} }) {
   const [elevIdx, setElevIdx] = useState(0);
   const [pageImage, setPageImage] = useState(null);
   const [imgLoaded, setImgLoaded] = useState(false);
@@ -232,7 +232,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   const [bucketMode, setBucketMode] = useState(false);
   const [cornerMode, setCornerMode] = useState(false);   // fallback when a bucket click "leaks"
   const [cornerPts, setCornerPts] = useState([]);
-  const [bucketShapes, setBucketShapes] = useState([]);  // each: {id,page,points,area_sf,material}
+  // bucketShapes is LIFTED to the app (props) so bucket-added walls flow into the bid & persist
   const [snapMsg, setSnapMsg] = useState("");
   const [snapBusy, setSnapBusy] = useState(false);
   // Material-group PREVIEW — AI suggests groups (may be imperfect); estimator SELECTS the ones she's bidding.
@@ -263,7 +263,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
 
   // NEW JOB → clear all per-job marks (bucket fills, group picks). Without this, shapes from the
   // previous drawing would silently flow into the next job's totals/Excel — a money bug.
-  useEffect(()=>{ setBucketShapes([]); setSelGroups({}); setPreviewGroups([]); setSnapMsg(""); setPageScales({}); }, [results.jobId]);
+  useEffect(()=>{ setSelGroups({}); setPreviewGroups([]); setSnapMsg(""); setPageScales({}); }, [results.jobId]);  // bucketShapes reset at app level (survives tab switches)
   // Pull shared learning from the server into local memory (so repeats are pre-identified)
   useEffect(()=>{
     fetch(BACKEND+"/recall").then(r=>r.ok?r.json():null).then(d=>{
@@ -1222,7 +1222,7 @@ function QueueView({ onOpen }) {
         if (s.status === "done") {
           clearInterval(iv); delete pollingRef.current[jobId]; busyRef.current = false;
           patch(id, { status: "done", progress: 100, stage: "Complete",
-            results: { legend: s.legend || [], takeoffData: s.takeoffData || [], scheduleData: s.scheduleData || null, drawingSchedule: s.drawingSchedule || null, projName: (s.projName) || "", jobId } });
+            results: { legend: s.legend || [], takeoffData: s.takeoffData || [], scheduleData: s.scheduleData || null, drawingSchedule: s.drawingSchedule || null, ocrMaterials: s.ocrMaterials || null, projName: (s.projName) || "", jobId } });
         } else if (s.status === "error") {
           clearInterval(iv); delete pollingRef.current[jobId]; busyRef.current = false;
           patch(id, { status: "error", error: s.error || "Analysis failed" });
@@ -1591,6 +1591,7 @@ export default function BFSEstimator() {
   const [groupRename, setGroupRename] = useState({});   // {backendGroupName: estimator name} — propagates across all pages of a job
   const [hiddenIds, setHiddenIds] = useState({});       // deleted highlights — lifted here so they SAVE with the bid
   const [deletedStack, setDeletedStack] = useState([]); // undo history for deletes (persists with the bid too)
+  const [bucketShapes, setBucketShapes] = useState([]); // walls the estimator bucket-added (fix AI misses) — lifted so they COUNT in the total, Budget & exports
 
   // ── UI polish: load real fonts + global interactions (the app referenced 'Inter' but never loaded it) ──
   useEffect(() => {
@@ -1669,7 +1670,8 @@ export default function BFSEstimator() {
   // Open a finished Queue result in the Takeoff view
   const openResult = (r) => {
     if(!r) return;
-    setResults(r); setAssignments({}); setErrMsg("");
+    setResults(r); setAssignments(r.assignments||{}); setErrMsg("");
+    setHiddenIds(r.hiddenIds||{}); setDeletedStack(r.deletedStack||[]); setBucketShapes(r.bucketShapes||[]);
     setPricing(p=>({...p, sfOverride:{}, customLines:[]}));  // fresh job → fresh per-job numbers
     setPhase("done"); setProgress({ label:"Complete", pct:100 });
     setAppTab("takeoff");
@@ -1687,7 +1689,7 @@ export default function BFSEstimator() {
         if(data.phase)setPhase(data.phase);
         if(data.status==="done"){
           clearInterval(pollRef.current);
-          setResults({legend:data.legend||[],takeoffData:data.takeoffData||[],scheduleData:data.scheduleData||null,drawingSchedule:data.drawingSchedule||null,projName:file?.name?.replace(".pdf","")||"Project",jobId:id});
+          setResults({legend:data.legend||[],takeoffData:data.takeoffData||[],scheduleData:data.scheduleData||null,drawingSchedule:data.drawingSchedule||null,ocrMaterials:data.ocrMaterials||null,projName:file?.name?.replace(".pdf","")||"Project",jobId:id});
           setPhase("done");setProgress({label:"Complete",pct:100});
         }else if(data.status==="error"){clearInterval(pollRef.current);setErrMsg(data.error||"Unknown error");setPhase("error");}
       }catch(e){console.log("poll",e.message);}
@@ -1696,7 +1698,7 @@ export default function BFSEstimator() {
 
   const run = async()=>{
     if(!file)return;
-    setPhase("running");setLog([]);setErrMsg("");setResults(null);setAssignments({});setHiddenIds({});setDeletedStack([]);seenLogs.current=0;
+    setPhase("running");setLog([]);setErrMsg("");setResults(null);setAssignments({});setHiddenIds({});setDeletedStack([]);setBucketShapes([]);seenLogs.current=0;
     setPricing(p=>({...p, sfOverride:{}, customLines:[]}));  // per-JOB numbers must never carry into the next bid (rates/waste/margin persist as the working rate card)
     try{
       setLog([{msg:"Uploading PDF...",level:"info"}]);
@@ -1727,7 +1729,7 @@ export default function BFSEstimator() {
         takeoffData:(results.takeoffData||[]).map(e=>({pageNumber:e.pageNumber,source:e.source,scale:e.scale,
           zones:(e.zones||[]).map(z=>({materialName:z.materialName,category:z.category,netArea:z.netArea,grossArea:z.grossArea,totalOpeningArea:z.totalOpeningArea})),
           linearItems:e.linearItems||[]})),
-        assignments, groupRename,
+        assignments, groupRename, bucketShapes:(bucketShapes||[]).map(s=>({area_sf:s.area_sf,material:s.material,page:s.page})),
       })}).catch(()=>{});
     }catch{}
   };
@@ -1736,6 +1738,7 @@ export default function BFSEstimator() {
     if(!moneyGuard())return;
     const mt={};
     results.takeoffData.forEach(e=>(e.zones||[]).forEach(z=>{const k=dispName(z.materialName||z.category||"Panel");if(!mt[k])mt[k]={name:k,sf:0};mt[k].sf+=z.netArea||0;}));
+    Object.entries(bucketByMat).forEach(([k,sf])=>{if(!mt[k])mt[k]={name:k,sf:0};mt[k].sf+=sf;});  // walls the estimator bucket-added
     const wb=buildExcel(results.projName||"Project",Object.values(mt));
     XLSX.writeFile(wb,"BFS_Takeoff_"+(results.projName||"Project").replace(/\s+/g,"_")+".xlsx");
     captureFinal("takeoff");
@@ -1762,22 +1765,26 @@ export default function BFSEstimator() {
     if(!results)return;
     const id=results.jobId||String(Date.now());
     const rec={ id, projName:results.projName, savedAt:Date.now(),
-      data:{ legend:results.legend, takeoffData:results.takeoffData, scheduleData:results.scheduleData||null, drawingSchedule:results.drawingSchedule||null, projName:results.projName, jobId:results.jobId },
-      assignments, pricing, hiddenIds, deletedStack, groupRename };
+      data:{ legend:results.legend, takeoffData:results.takeoffData, scheduleData:results.scheduleData||null, drawingSchedule:results.drawingSchedule||null, ocrMaterials:results.ocrMaterials||null, projName:results.projName, jobId:results.jobId },
+      assignments, pricing, hiddenIds, deletedStack, groupRename, bucketShapes };
     try{ localStorage.setItem("bfs_bid_"+id, JSON.stringify(rec)); refreshSaved(); }
     catch(e){ alert("Could not save bid: "+e.message); }
   };
   const loadBid=rec=>{
     setResults(rec.data); setAssignments(rec.assignments||{});
     setPricing(rec.pricing||{rates:{},wastePct:15,marginPct:20});
-    setHiddenIds(rec.hiddenIds||{}); setDeletedStack(rec.deletedStack||[]); setGroupRename(rec.groupRename||{});
+    setHiddenIds(rec.hiddenIds||{}); setDeletedStack(rec.deletedStack||[]); setGroupRename(rec.groupRename||{}); setBucketShapes(rec.bucketShapes||[]);
     setPhase("done"); setViewMode("table"); setFile(null);
   };
   const deleteBid=(id,ev)=>{ if(ev)ev.stopPropagation(); try{ localStorage.removeItem("bfs_bid_"+id); }catch{} refreshSaved(); };
 
+  // Walls the estimator bucket-added to fix AI misses — roll up by material so they COUNT
+  // in the total, the Budget and the exports (additive: these walls aren't in zones/assignments).
+  const bucketByMat = (bucketShapes||[]).reduce((acc,s)=>{const k=dispName(s.material||"Cladding (added)");acc[k]=(acc[k]||0)+(s.area_sf||0);return acc;},{});
   const summary=results?()=>{
     const t={};
     results.takeoffData.forEach(e=>(e.zones||[]).forEach(z=>{const k=dispName(z.category||"Other");if(!t[k])t[k]={net:0,adj:0,color:MAT_COLORS[k]||hashColor(k)};t[k].net+=z.netArea||0;t[k].adj+=(z.netArea||0)*1.15;}));
+    Object.entries(bucketByMat).forEach(([k,sf])=>{if(!t[k])t[k]={net:0,adj:0,color:MAT_COLORS[k]||hashColor(k)};t[k].net+=sf;t[k].adj+=sf*1.15;});
     return t;
   }:null;
   const summaryData = summary ? summary() : null;
@@ -1786,7 +1793,10 @@ export default function BFSEstimator() {
   const reviewedSummary = Object.values(assignments).reduce((acc,a)=>{
     const cat=dispName(a.category||a.materialName||"Panel"); if(!acc[cat])acc[cat]={net:0}; acc[cat].net+=a.area_sf||0; return acc;
   },{});
+  // hasReviewed keys off HER ASSIGNMENTS only (before folding bucket) — so bucket-added walls
+  // never flip the pricing source and drop the auto-detected zones from the bid.
   const hasReviewed = Object.keys(reviewedSummary).length>0;
+  Object.entries(bucketByMat).forEach(([k,sf])=>{if(!reviewedSummary[k])reviewedSummary[k]={net:0};reviewedSummary[k].net+=sf;});
   const pricingSource = hasReviewed ? reviewedSummary : (summaryData||{});
   const wasteOf = cat => (pricing.wastePerMat && pricing.wastePerMat[cat]!=null) ? pricing.wastePerMat[cat] : pricing.wastePct;  // waste differs by material (lap ~10, shake ~15+, cut panels less)
   const setWasteMat = (cat,v)=>setPricing(p=>({...p,wastePerMat:{...(p.wastePerMat||{}),[cat]:v}}));
@@ -1890,7 +1900,7 @@ export default function BFSEstimator() {
               <button onClick={exportExcel} style={{padding:"0.45rem 1rem",background:"transparent",color:"rgba(255,255,255,0.7)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↓ Excel</button>
               <button onClick={exportPDF} disabled={pdfLoading} style={{padding:"0.45rem 1rem",background:"linear-gradient(180deg,#5A92D2,#3F79BC)",color:"#fff",border:"none",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↓ {pdfLoading?"Generating...":"Evidence PDF"}</button>
               <button onClick={saveBid} style={{padding:"0.45rem 1rem",background:"transparent",color:"rgba(255,255,255,0.7)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>💾 Save</button>
-              <button onClick={()=>{setFile(null);setPhase("idle");setResults(null);setLog([]);setAssignments({});setHiddenIds({});setDeletedStack([]);}} style={{padding:"0.45rem 1rem",background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.6)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↺ New</button>
+              <button onClick={()=>{setFile(null);setPhase("idle");setResults(null);setLog([]);setAssignments({});setHiddenIds({});setDeletedStack([]);setBucketShapes([]);}} style={{padding:"0.45rem 1rem",background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.6)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↺ New</button>
             </div>
           )}
         </div>
@@ -2180,6 +2190,22 @@ export default function BFSEstimator() {
               </div>
             )}
 
+            {/* Materials READ OFF a flattened drawing with OCR (sets with no extractable text) */}
+            {results.ocrMaterials&&results.ocrMaterials.length>0&&(
+              <div>
+                <div style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"0.6rem"}}>🔎 Materials read off the drawing</div>
+                <div style={{border:"1px solid #DDE7F2",borderRadius:8,overflow:"hidden"}}>
+                  {results.ocrMaterials.map((m,i)=>(
+                    <div key={i} style={{display:"flex",alignItems:"center",gap:"0.5rem",padding:"0.42rem 0.6rem",background:i%2?"#F8FAFC":"#fff",borderTop:i?"1px solid #F1F5F9":"none"}}>
+                      <div style={{width:8,height:8,borderRadius:2,background:hashColor(m.text),flexShrink:0}}/>
+                      <span style={{fontSize:"0.64rem",color:"#334155",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={m.text}>{m.text}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{fontSize:"0.56rem",color:"#94A3B8",marginTop:"0.35rem",lineHeight:1.4}}>This set has no digital text, so the AI read the material spec straight off the drawing image — tag your regions with these.</div>
+              </div>
+            )}
+
             {/* Architect's own material schedule read off the drawing — a sanity-check target */}
             {results.drawingSchedule&&results.drawingSchedule.items&&results.drawingSchedule.items.length>0&&(
               <div>
@@ -2275,7 +2301,7 @@ export default function BFSEstimator() {
           {/* Main */}
           <main style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
             {viewMode==="interactive"&&(
-              <div style={{flex:1,overflow:"hidden"}}><InteractiveView results={results} BACKEND={BACKEND} assignments={assignments} setAssignments={setAssignments} groupRename={groupRename} setGroupRename={setGroupRename} setResults={setResults} hiddenIds={hiddenIds} setHiddenIds={setHiddenIds} deletedStack={deletedStack} setDeletedStack={setDeletedStack}/></div>
+              <div style={{flex:1,overflow:"hidden"}}><InteractiveView results={results} BACKEND={BACKEND} assignments={assignments} setAssignments={setAssignments} groupRename={groupRename} setGroupRename={setGroupRename} setResults={setResults} hiddenIds={hiddenIds} setHiddenIds={setHiddenIds} deletedStack={deletedStack} setDeletedStack={setDeletedStack} bucketShapes={bucketShapes} setBucketShapes={setBucketShapes}/></div>
             )}
             {viewMode==="edit"&&(
               <div style={{flex:1,overflow:"hidden"}}><EditorView results={results} BACKEND={BACKEND} setResults={setResults}/></div>
