@@ -1691,8 +1691,16 @@ export default function BFSEstimator() {
     const s = document.createElement("style");
     s.id = "bfs-ui-polish";
     s.textContent = `
+      html { font-size: 17.5px; }  /* whole app is rem-based — one dial scales every screen up ~9% */
       html, body, #root { font-family: 'Inter', system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; letter-spacing: -0.012em; font-variant-numeric: tabular-nums; }
       h1,h2,h3 { letter-spacing: -0.03em; }
+      /* the money numbers glow: any big bold figure reads like a dashboard, not a form */
+      h2 { font-size: 1.9rem !important; }
+      div[style*="font-size: 2.1rem"], div[style*="font-size: 2.2rem"], span[style*="font-size: 2.2rem"] {
+        background: linear-gradient(135deg, #5A92D2 0%, #7FB0E0 55%, #AFCDEE 100%);
+        -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+        filter: drop-shadow(0 1px 8px rgba(90,146,210,.25));
+      }
       /* signature: a slow beam of light traveling the facade line under the header */
       header { position: relative; }
       header::after { content:""; position:absolute; left:0; right:0; bottom:-2px; height:2px; pointer-events:none;
