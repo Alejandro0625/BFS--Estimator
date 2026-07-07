@@ -2143,7 +2143,7 @@ export default function BFSEstimator() {
                   <div style={{fontSize:"3rem",marginBottom:"0.75rem",opacity:0.5}}>📂</div>
                   <div style={{fontSize:"1rem",fontWeight:600,color:"rgba(255,255,255,0.75)",marginBottom:"0.35rem"}}>Drop your blueprint PDF here</div>
                   <div style={{fontSize:"0.78rem",color:"rgba(255,255,255,0.3)"}}>or click to browse your files</div>
-                  <div style={{fontSize:"0.68rem",color:"rgba(127,176,224,0.55)",marginTop:"0.6rem"}}>Marked-up Bluebeam sets read exact · unmarked sets auto-read — for the cleanest auto-read, upload just the elevation sheets</div>
+                  <div style={{fontSize:"0.68rem",color:"rgba(127,176,224,0.55)",marginTop:"0.6rem"}}>Upload the full drawing set — the system finds the elevations. Marked-up Bluebeam sets read exact.</div>
                 </>
               )}
               {file&&!isRunning&&(
@@ -2197,11 +2197,6 @@ export default function BFSEstimator() {
             )}
 
             {/* Feature pills */}
-            {!file&&!isRunning&&(
-              <div style={{textAlign:"center",fontSize:"0.68rem",color:"rgba(255,255,255,0.42)",lineHeight:1.6}}>
-                💡 Tip: for unmarked sets, upload just the <b style={{color:"rgba(255,255,255,0.65)"}}>elevation sheets</b> — cleanest auto-read. Marked-up Bluebeam files come back exact.
-              </div>
-            )}
             {!file&&!isRunning&&(
               <div style={{display:"flex",justifyContent:"center",gap:"0.5rem",flexWrap:"wrap"}}>
                 {["Reads drawing geometry","Deep zoom","Elevations","Excel Export","Evidence PDF"].map(tag=>(
@@ -2486,7 +2481,7 @@ export default function BFSEstimator() {
                   <div style={{background:"#fff",borderRadius:14,border:"1px solid #FDE68A",padding:"2.25rem 2rem",textAlign:"center",boxShadow:"0 2px 10px rgba(15,23,42,0.05)"}}>
                     <div style={{fontSize:"2.2rem",marginBottom:"0.5rem"}}>🤔</div>
                     <div style={{fontSize:"1.05rem",fontWeight:800,color:"#0F172A",marginBottom:"0.4rem"}}>No measurable areas found on this drawing</div>
-                    <div style={{fontSize:"0.82rem",color:"#64748B",lineHeight:1.7,maxWidth:520,margin:"0 auto"}}>The AI couldn't detect cladding on these pages and found no Bluebeam measurements to read. You can still measure it yourself: open the <b>Draw</b> tab, set the scale, and trace the walls — or try re-uploading just the elevation sheets.</div>
+                    <div style={{fontSize:"0.82rem",color:"#64748B",lineHeight:1.7,maxWidth:520,margin:"0 auto"}}>The AI couldn't detect cladding on these pages and found no Bluebeam measurements to read. You can still measure it yourself: open the <b>Draw</b> tab, set the scale, and trace the walls.</div>
                   </div>
                 )}
                 {reviewElevs.length>0&&<div style={{fontSize:"0.72rem",letterSpacing:"0.1em",color:BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"1rem"}}>By elevation{reviewElevs.length>6?" · biggest first":""}</div>}
