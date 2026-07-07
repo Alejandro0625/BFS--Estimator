@@ -1243,10 +1243,10 @@ function ModelView() {
         )}
         <div style={{background:NAVY,borderRadius:12,padding:"1.1rem 1.25rem",color:"#fff",marginBottom:"1.5rem"}}>
           <div style={{fontSize:"0.6rem",letterSpacing:"0.1em",color:"rgba(255,255,255,0.5)",textTransform:"uppercase",fontWeight:700,marginBottom:"0.5rem"}}>Model status — measured honestly</div>
-          <div style={{fontSize:"0.95rem",fontWeight:700}}>🟢 v10 training — job-split, scale-augmented</div>
+          <div style={{fontSize:"0.95rem",fontWeight:700}}>🟢 v11 in production — fair-eval winner across 3 trained models</div>
           <div style={{fontSize:"0.68rem",color:"rgba(255,255,255,0.55)",marginTop:"0.4rem",lineHeight:1.5}}>Every number below is measured on jobs the model has <i>never seen</i> (split by job — no leakage). The honest read, not a demo score.</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"0.6rem",marginTop:"0.9rem"}}>
-            {[["0.62","cladding-detection IoU","on drawings like ones it's trained on"],["~32%","found on a blank sheet","climbs with every job you add"],["Exact","your bid SF","from geometry + your confirm — never a guess"]].map(([n,t,d])=>(
+            {[["0.664","cladding-detection IoU","v11 beat v10's 0.607 on the same held-out exam — ~10% more cladding found"],["Per-wall","first paint splits at joints","walls arrive as separate pieces, like a marked takeoff"],["Exact","your bid SF","from geometry + your confirm — never a guess"]].map(([n,t,d])=>(
               <div key={t} style={{background:"rgba(255,255,255,0.06)",borderRadius:8,padding:"0.7rem 0.75rem"}}>
                 <div style={{fontSize:"1.25rem",fontWeight:800,color:"#7FB0E0"}}>{n}</div>
                 <div style={{fontSize:"0.64rem",fontWeight:700,color:"rgba(255,255,255,0.85)",marginTop:2}}>{t}</div>
@@ -1257,6 +1257,20 @@ function ModelView() {
           <div style={{fontSize:"0.64rem",color:"rgba(255,255,255,0.6)",marginTop:"0.85rem",lineHeight:1.5,borderTop:"1px solid rgba(255,255,255,0.08)",paddingTop:"0.7rem"}}>
             <b style={{color:"#93C5FD"}}>How to read this:</b> the model's job is to <i>find + pre-mark</i> the cladding so the estimator selects instead of tracing. The <b>bid SF stays exact</b> because she confirms each group and the number comes from the drawing's own geometry. Naming metal-vs-lap across different architects isn't reliable from the drawing (it lives in the legend) — so she names the material in one click, and the model gets sharper on <i>your</i> recurring jobs every cycle.
           </div>
+        </div>
+        <div style={{background:"#fff",borderRadius:12,border:"1px solid #EEF2F7",padding:"1.1rem 1.25rem",marginBottom:"1.5rem"}}>
+          <div style={{fontSize:"0.6rem",letterSpacing:"0.1em",color:BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"0.5rem"}}>📏 Scored against your own takeoffs — wall by wall</div>
+          <div style={{fontSize:"0.7rem",color:"#64748B",lineHeight:1.55,marginBottom:"0.85rem"}}>Every past marked-up bid is an answer key: the system strips your markups, reads the bare drawing, and gets graded against what you measured — <b>per wall, not just totals</b> (totals can lie; two wrong walls can sum right).</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"0.6rem"}}>
+            {[["228 → 228","reference job, wall-exact","clicked wall returns the SF you marked, to the foot"],["−0.7%","reference job, all 10 walls","one click per wall vs your hand takeoff"],["13%","across 12 other jobs","the dial being driven up — each session is graded on more of your past bids"]].map(([n,t,d])=>(
+              <div key={t} style={{background:"#F8FAFC",borderRadius:8,padding:"0.7rem 0.75rem",border:"1px solid #EEF2F7"}}>
+                <div style={{fontSize:"1.15rem",fontWeight:800,color:BLUE}}>{n}</div>
+                <div style={{fontSize:"0.64rem",fontWeight:700,color:"#334155",marginTop:2}}>{t}</div>
+                <div style={{fontSize:"0.58rem",color:"#94A3B8",marginTop:2,lineHeight:1.35}}>{d}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{fontSize:"0.62rem",color:"#94A3B8",marginTop:"0.7rem",lineHeight:1.5}}>Next reader in training: <b style={{color:"#475569"}}>diagonal-hatch materials</b> (masonry/EIFS drawn as 45° strokes) — found by this benchmark, ships only when the reference job's numbers hold exactly.</div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"0.75rem"}}>
           {[["📐","Run a bid","Estimator marks the takeoff like always"],["🧠","It learns","Every shape becomes a new training example"],["⚡","Gets sharper","Next similar drawing, it does more for you"]].map(([ic,t,d])=>(
