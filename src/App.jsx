@@ -215,7 +215,7 @@ function DeepZoom({ BACKEND, jobId, pageNum, children }) {
   );
 }
 
-function InteractiveView({ results, BACKEND, assignments, setAssignments, groupRename={}, setGroupRename=()=>{}, setResults, hiddenIds={}, setHiddenIds=()=>{}, deletedStack=[], setDeletedStack=()=>{}, bucketShapes=[], setBucketShapes=()=>{} }) {
+function InteractiveView({ results, BACKEND, assignments, setAssignments, groupRename={}, setGroupRename=()=>{}, setResults, hiddenIds={}, setHiddenIds=()=>{}, deletedStack=[], setDeletedStack=()=>{}, bucketShapes=[], setBucketShapes=()=>{}, bucketColorNames={}, setBucketColorNames=()=>{} }) {
   const [elevIdx, setElevIdx] = useState(0);
   const [pageImage, setPageImage] = useState(null);
   const [imgLoaded, setImgLoaded] = useState(false);
@@ -231,6 +231,8 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   // Bucket-fill (coloring-book) assist — click a wall → exact SF from vector geometry. Additive/opt-in.
   const [bucketMode, setBucketMode] = useState(false);
   const [splitMode, setSplitMode] = useState(false);   // ✂ estimator's knife: click a face's boundary → it splits there
+  const BUCKET_COLS = ["#22D3EE","#E85DA0","#3FB36B","#F0A23C","#9B6FD4","#F4D03F"]; // cyan first — his Bluebeam PNL color
+  const [curBucketColor, setCurBucketColor] = useState("#22D3EE");
   const [cornerMode, setCornerMode] = useState(false);   // fallback when a bucket click "leaks"
   const [cornerPts, setCornerPts] = useState([]);
   // bucketShapes is LIFTED to the app (props) so bucket-added walls flow into the bid & persist
@@ -463,11 +465,14 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     try{
       const r=await fetch(BACKEND+"/snap-fill",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page:pageNum,point:[p.x,p.y]})}).then(r=>r.json());
       if(r.status==="ok"){
-        addBucketShape(r.points,r.area_sf,{holes:r.holes||[],pattern_sig:r.pattern_sig||"",material:r.material||""});
-        (r.siblings||[]).forEach(s=>addBucketShape(s.points,s.area_sf,{holes:s.holes||[],material:r.material||""}));
+        // HIS BLUEBEAM HABIT: the selected COLOR is the material — fills paint in it, and the
+        // color's name (set once) flows to every shape of that color, the Budget and the Excel
+        const mat=bucketColorNames[curBucketColor]||r.material||"";
+        addBucketShape(r.points,r.area_sf,{holes:r.holes||[],pattern_sig:r.pattern_sig||"",material:mat,color:curBucketColor});
+        (r.siblings||[]).forEach(s=>addBucketShape(s.points,s.area_sf,{holes:s.holes||[],material:mat,color:curBucketColor}));
         const n=1+(r.siblings||[]).length;
         const tot=r.pattern_total_sf||r.area_sf;
-        setSnapMsg(`✓ ${n>1?`${n} areas with this pattern · `:""}${Math.round(tot).toLocaleString()} SF${(r.holes||[]).length?" net":""}`);
+        setSnapMsg(`✓ ${n>1?`${n} areas with this pattern · `:""}${Math.round(tot).toLocaleString()} SF${(r.holes||[]).length?" net":""}${mat?` · ${mat}`:""}`);
       }
       else if(r.status==="leak"){ setCornerMode(true); setCornerPts([]); setSnapMsg("Open field — click each corner (peaks too), then Finish"); }
       else setSnapMsg("Couldn't fill there — try clicking the corners");
@@ -579,6 +584,12 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
           </div>}
           <button onClick={()=>{setBucketMode(m=>!m);setSplitMode(false);setCornerMode(false);setCornerPts([]);setSnapMsg("");setCalibMode(false);}} style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid "+(bucketMode?"#10B981":"#2D5280"),background:bucketMode?"#064E3B":NAVY_LT,color:bucketMode?"#6EE7B7":"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>🪣 {bucketMode?"Bucket ON — click a wall":"Bucket fill"}</button>
           <button onClick={()=>{setSplitMode(m=>!m);setBucketMode(false);setCornerMode(false);setCalibMode(false);setSnapMsg("");}} title="Click a face where the material changes — it splits along the structural line there" style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid "+(splitMode?"#F59E0B":"#2D5280"),background:splitMode?"#451A03":NAVY_LT,color:splitMode?"#FCD34D":"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>✂ {splitMode?"Split ON — click the boundary":"Split face"}</button>
+          {bucketMode&&<div style={{display:"flex",alignItems:"center",gap:"0.3rem",padding:"0.2rem 0.5rem",borderRadius:20,background:NAVY_LT,border:"1px solid #2D5280"}}>
+            {BUCKET_COLS.map(c=>(
+              <div key={c} onClick={()=>setCurBucketColor(c)} title={bucketColorNames[c]||"click to paint with this color"} style={{width:18,height:18,borderRadius:5,background:c,cursor:"pointer",border:curBucketColor===c?"2px solid #fff":"2px solid transparent",boxShadow:curBucketColor===c?"0 0 6px "+c:"none"}}/>
+            ))}
+            <input value={bucketColorNames[curBucketColor]||""} onChange={e=>setBucketColorNames({...bucketColorNames,[curBucketColor]:e.target.value})} placeholder="name this color (e.g. PNL-1)" style={{width:130,marginLeft:4,padding:"0.22rem 0.45rem",borderRadius:5,border:"1px solid #2D5280",background:NAVY,color:curBucketColor,fontWeight:700,fontSize:"0.64rem",fontFamily:"inherit"}}/>
+          </div>}
           {bucketMode&&cornerMode&&<div style={{display:"flex",alignItems:"center",gap:"0.35rem"}}>
             <span style={{fontSize:"0.63rem",color:"#FCD34D"}}>Corners: {cornerPts.length}</span>
             <button onClick={finishCorners} disabled={cornerPts.length<3} style={{fontSize:"0.63rem",padding:"0.25rem 0.6rem",borderRadius:5,border:"none",background:cornerPts.length<3?"#334155":"linear-gradient(180deg,#34D399,#10B981)",color:"#fff",cursor:cornerPts.length<3?"default":"pointer",fontFamily:"inherit",fontWeight:700}}>Finish</button>
@@ -618,8 +629,8 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
               })}
               {calibPts.length===2&&<line x1={calibPts[0].x*pageDims.width} y1={calibPts[0].y*pageDims.height} x2={calibPts[1].x*pageDims.width} y2={calibPts[1].y*pageDims.height} stroke="#EF4444" strokeWidth={pageDims.width/350} strokeDasharray={pageDims.width/90}/>}
               {calibPts.map((p,i)=><circle key={"cp"+i} cx={p.x*pageDims.width} cy={p.y*pageDims.height} r={pageDims.width/110} fill="#EF4444" stroke="#fff" strokeWidth={pageDims.width/600}/>)}
-              {pageBucketShapes.map(s=>{const cx=s.points.reduce((a,p)=>a+p[0],0)/s.points.length*pageDims.width,cy=s.points.reduce((a,p)=>a+p[1],0)/s.points.length*pageDims.height;const warn=s.openings_review;return <g key={"bk"+s.id}>
-                <polygon points={toSVGPoints(s.points)} fill={warn?"#F59E0B":"#10B981"} fillOpacity={editShape===s.id?0.42:0.30} stroke={editShape===s.id?"#fff":(warn?"#F59E0B":"#10B981")} strokeWidth={editShape===s.id?2.6:2} onClick={s.sfScale?(e=>{e.stopPropagation();setEditShape(editShape===s.id?null:s.id);}):undefined} style={s.sfScale?{cursor:"pointer"}:undefined}/>
+              {pageBucketShapes.map(s=>{const cx=s.points.reduce((a,p)=>a+p[0],0)/s.points.length*pageDims.width,cy=s.points.reduce((a,p)=>a+p[1],0)/s.points.length*pageDims.height;const warn=s.openings_review;const col=s.color||(warn?"#F59E0B":"#10B981");return <g key={"bk"+s.id}>
+                <polygon points={toSVGPoints(s.points)} fill={col} fillOpacity={editShape===s.id?0.6:0.5} stroke={editShape===s.id?"#fff":col} strokeWidth={editShape===s.id?2.6:1.4} onClick={s.sfScale?(e=>{e.stopPropagation();setEditShape(editShape===s.id?null:s.id);}):undefined} style={s.sfScale?{cursor:"pointer"}:undefined}/>
                 {editShape===s.id&&s.points.map((pt,i)=>{const q=s.points[(i+1)%s.points.length];const mx=(pt[0]+q[0])/2*pageDims.width,my=(pt[1]+q[1])/2*pageDims.height,hs=pageDims.width/300;return <rect key={"m"+i} x={mx-hs} y={my-hs} width={hs*2} height={hs*2} fill="#93C5FD" stroke="#1D4ED8" strokeWidth={pageDims.width/900} style={{cursor:"copy"}} onMouseDown={e=>{e.stopPropagation();e.preventDefault();const mpt=[(pt[0]+q[0])/2,(pt[1]+q[1])/2];setBucketShapes(prev=>prev.map(sh=>sh.id!==s.id?sh:{...sh,points:[...sh.points.slice(0,i+1),mpt,...sh.points.slice(i+1)]}));dragRef.current={sid:s.id,vi:i+1};}}/>;})}
                 {editShape===s.id&&s.points.map((pt,i)=><circle key={"v"+i} cx={pt[0]*pageDims.width} cy={pt[1]*pageDims.height} r={pageDims.width/150} fill="#fff" stroke="#10B981" strokeWidth={pageDims.width/500} style={{cursor:"grab"}} onMouseDown={e=>{e.stopPropagation();e.preventDefault();dragRef.current={sid:s.id,vi:i};}} onDoubleClick={e=>{e.stopPropagation();if(s.points.length<=3)return;setBucketShapes(prev=>prev.map(sh=>{if(sh.id!==s.id)return sh;const pts=sh.points.filter((_,ix)=>ix!==i);if(!sh.sfScale)return{...sh,points:pts};const gross=polyAreaSF(pts,sh.sfScale,pageDims.width,pageDims.height);return{...sh,points:pts,gross_sf:Math.round(gross*10)/10,area_sf:Math.round(Math.max(0,gross-(sh.opening_sf||0))*10)/10};}));}}/>)}
                 {(s.holes||[]).map((hp,i)=><polygon key={"h"+i} points={toSVGPoints(hp)} fill="#FFFFFF" fillOpacity={0.75} stroke="#64748B" strokeWidth={1.2} strokeDasharray={pageDims.width/260}/>)}
@@ -1631,6 +1642,7 @@ export default function BFSEstimator() {
   const [hiddenIds, setHiddenIds] = useState({});       // deleted highlights — lifted here so they SAVE with the bid
   const [deletedStack, setDeletedStack] = useState([]); // undo history for deletes (persists with the bid too)
   const [bucketShapes, setBucketShapes] = useState([]); // walls the estimator bucket-added (fix AI misses) — lifted so they COUNT in the total, Budget & exports
+  const [bucketColorNames, setBucketColorNames] = useState({}); // color -> material name (his Bluebeam habit: cyan IS PNL-1) — lifted, saves with the bid
 
   // ── UI polish: load real fonts + global interactions (the app referenced 'Inter' but never loaded it) ──
   useEffect(() => {
@@ -1805,21 +1817,23 @@ export default function BFSEstimator() {
     const id=results.jobId||String(Date.now());
     const rec={ id, projName:results.projName, savedAt:Date.now(),
       data:{ legend:results.legend, takeoffData:results.takeoffData, scheduleData:results.scheduleData||null, drawingSchedule:results.drawingSchedule||null, ocrMaterials:results.ocrMaterials||null, projName:results.projName, jobId:results.jobId },
-      assignments, pricing, hiddenIds, deletedStack, groupRename, bucketShapes };
+      assignments, pricing, hiddenIds, deletedStack, groupRename, bucketShapes, bucketColorNames };
     try{ localStorage.setItem("bfs_bid_"+id, JSON.stringify(rec)); refreshSaved(); }
     catch(e){ alert("Could not save bid: "+e.message); }
   };
   const loadBid=rec=>{
     setResults(rec.data); setAssignments(rec.assignments||{});
     setPricing(rec.pricing||{rates:{},wastePct:15,marginPct:20});
-    setHiddenIds(rec.hiddenIds||{}); setDeletedStack(rec.deletedStack||[]); setGroupRename(rec.groupRename||{}); setBucketShapes(rec.bucketShapes||[]);
+    setHiddenIds(rec.hiddenIds||{}); setDeletedStack(rec.deletedStack||[]); setGroupRename(rec.groupRename||{}); setBucketShapes(rec.bucketShapes||[]); setBucketColorNames(rec.bucketColorNames||{});
     setPhase("done"); setViewMode("table"); setFile(null);
   };
   const deleteBid=(id,ev)=>{ if(ev)ev.stopPropagation(); try{ localStorage.removeItem("bfs_bid_"+id); }catch{} refreshSaved(); };
 
   // Walls the estimator bucket-added to fix AI misses — roll up by material so they COUNT
   // in the total, the Budget and the exports (additive: these walls aren't in zones/assignments).
-  const bucketByMat = (bucketShapes||[]).reduce((acc,s)=>{const k=dispName(s.material||"Cladding (added)");acc[k]=(acc[k]||0)+(s.area_sf||0);return acc;},{});
+  // name resolution: explicit material > the color's name (set once, applies to ALL shapes
+  // of that color — even retroactively) > generic
+  const bucketByMat = (bucketShapes||[]).reduce((acc,s)=>{const k=dispName(s.material||bucketColorNames[s.color]||"Cladding (added)");acc[k]=(acc[k]||0)+(s.area_sf||0);return acc;},{});
   const summary=results?()=>{
     const t={};
     results.takeoffData.forEach(e=>(e.zones||[]).forEach(z=>{const k=dispName(z.category||"Other");if(!t[k])t[k]={net:0,adj:0,color:MAT_COLORS[k]||hashColor(k)};t[k].net+=z.netArea||0;t[k].adj+=(z.netArea||0)*1.15;}));
@@ -2340,7 +2354,7 @@ export default function BFSEstimator() {
           {/* Main */}
           <main style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
             {viewMode==="interactive"&&(
-              <div style={{flex:1,overflow:"hidden"}}><InteractiveView results={results} BACKEND={BACKEND} assignments={assignments} setAssignments={setAssignments} groupRename={groupRename} setGroupRename={setGroupRename} setResults={setResults} hiddenIds={hiddenIds} setHiddenIds={setHiddenIds} deletedStack={deletedStack} setDeletedStack={setDeletedStack} bucketShapes={bucketShapes} setBucketShapes={setBucketShapes}/></div>
+              <div style={{flex:1,overflow:"hidden"}}><InteractiveView results={results} BACKEND={BACKEND} assignments={assignments} setAssignments={setAssignments} groupRename={groupRename} setGroupRename={setGroupRename} setResults={setResults} hiddenIds={hiddenIds} setHiddenIds={setHiddenIds} deletedStack={deletedStack} setDeletedStack={setDeletedStack} bucketShapes={bucketShapes} setBucketShapes={setBucketShapes} bucketColorNames={bucketColorNames} setBucketColorNames={setBucketColorNames}/></div>
             )}
             {viewMode==="edit"&&(
               <div style={{flex:1,overflow:"hidden"}}><EditorView results={results} BACKEND={BACKEND} setResults={setResults}/></div>
