@@ -230,6 +230,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   const [realDist, setRealDist] = useState("");
   // Bucket-fill (coloring-book) assist — click a wall → exact SF from vector geometry. Additive/opt-in.
   const [bucketMode, setBucketMode] = useState(false);
+  const [splitMode, setSplitMode] = useState(false);   // ✂ estimator's knife: click a face's boundary → it splits there
   const [cornerMode, setCornerMode] = useState(false);   // fallback when a bucket click "leaks"
   const [cornerPts, setCornerPts] = useState([]);
   // bucketShapes is LIFTED to the app (props) so bucket-added walls flow into the bid & persist
@@ -394,9 +395,35 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     const p=pt.matrixTransform(m.inverse());
     return { x:p.x/pageDims.width, y:p.y/pageDims.height };
   };
+  // ✂ SPLIT: the estimator clicks the material boundary on a face — the backend cuts it
+  // along the nearest structural line; both halves keep their share of the net SF. Every
+  // split is saved as boundary training data (how the system learns HIS material lines).
+  const doSplit=async p=>{
+    const inPoly=(pt,poly)=>{let ins=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const[x1,y1]=poly[i],[x2,y2]=poly[j];if((y1>pt.y)!==(y2>pt.y)&&pt.x<(x2-x1)*(pt.y-y1)/(y2-y1+1e-12)+x1)ins=!ins;}return ins;};
+    const cands=displayZones.filter(z=>(z.points||[]).length>=3&&inPoly(p,z.points));
+    if(!cands.length){ setSnapMsg("Click inside the face you want to split"); return; }
+    const target=cands.reduce((a,b)=>(a.area_sf||0)<=(b.area_sf||0)?a:b);   // smallest face under the click
+    setSnapBusy(true); setSnapMsg("Splitting…");
+    try{
+      const r=await fetch(BACKEND+"/split-shape",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({jobId:results.jobId,page:pageNum,points:target.points,area_sf:target.area_sf||0,holes:target.holes||[],click:[p.x,p.y]})}).then(r=>r.json());
+      if(r.status==="ok"&&r.shapes?.length===2){
+        setPagePolygons(prev=>{
+          const nid=Math.max(0,...prev.map(z=>z.id||0));
+          return prev.flatMap(z=>z.id===target.id
+            ?r.shapes.map((s,i)=>({...z,id:nid+1+i,points:s.points,area_sf:s.area_sf,holes:s.holes||[],cx:s.points.reduce((a,q)=>a+q[0],0)/s.points.length,cy:s.points.reduce((a,q)=>a+q[1],0)/s.points.length}))
+            :[z]);
+        });
+        setSnapMsg(`✂ split into ${Math.round(r.shapes[0].area_sf).toLocaleString()} + ${Math.round(r.shapes[1].area_sf).toLocaleString()} SF — click each to tag its material`);
+        fetch(BACKEND+"/learn",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page:pageNum,source:"split",axis:r.axis,cut_at:r.cut_at,face:target.points})}).catch(()=>{});
+      } else setSnapMsg("Couldn't split there — click nearer the boundary line");
+    }catch{ setSnapMsg("Split failed — check connection"); }
+    setSnapBusy(false);
+  };
   const handleSvgClick=evt=>{
     if(suppressClickRef.current){ suppressClickRef.current=false; return; }   // that click was a vertex drag
     if(calibMode){ const p=getSvgPoint(evt); if(p) setCalibPts(prev=>prev.length>=2?[p]:[...prev,p]); return; }
+    if(splitMode&&!snapBusy){ const p=getSvgPoint(evt); if(p) doSplit(p); return; }
     if(!bucketMode||snapBusy) return;
     const p=getSvgPoint(evt); if(!p) return;
     if(cornerMode){ setCornerPts(prev=>[...prev,p]); return; }
@@ -550,7 +577,8 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
               return <button key={lab} onClick={()=>setCalibFt(on?null:v)} title={lab.replace("in","\"")+'"=1\'-0" — sets this page\'s scale'} style={{fontSize:"0.6rem",padding:"0.22rem 0.4rem",borderRadius:5,border:"1px solid "+(on?BLUE:"#2D5280"),background:on?BLUE:NAVY_LT,color:on?"#fff":"#94A3B8",cursor:"pointer",fontFamily:"inherit",fontWeight:on?700:500}}>{lab}</button>;
             })}
           </div>}
-          <button onClick={()=>{setBucketMode(m=>!m);setCornerMode(false);setCornerPts([]);setSnapMsg("");setCalibMode(false);}} style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid "+(bucketMode?"#10B981":"#2D5280"),background:bucketMode?"#064E3B":NAVY_LT,color:bucketMode?"#6EE7B7":"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>🪣 {bucketMode?"Bucket ON — click a wall":"Bucket fill"}</button>
+          <button onClick={()=>{setBucketMode(m=>!m);setSplitMode(false);setCornerMode(false);setCornerPts([]);setSnapMsg("");setCalibMode(false);}} style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid "+(bucketMode?"#10B981":"#2D5280"),background:bucketMode?"#064E3B":NAVY_LT,color:bucketMode?"#6EE7B7":"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>🪣 {bucketMode?"Bucket ON — click a wall":"Bucket fill"}</button>
+          <button onClick={()=>{setSplitMode(m=>!m);setBucketMode(false);setCornerMode(false);setCalibMode(false);setSnapMsg("");}} title="Click a face where the material changes — it splits along the structural line there" style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid "+(splitMode?"#F59E0B":"#2D5280"),background:splitMode?"#451A03":NAVY_LT,color:splitMode?"#FCD34D":"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>✂ {splitMode?"Split ON — click the boundary":"Split face"}</button>
           {bucketMode&&cornerMode&&<div style={{display:"flex",alignItems:"center",gap:"0.35rem"}}>
             <span style={{fontSize:"0.63rem",color:"#FCD34D"}}>Corners: {cornerPts.length}</span>
             <button onClick={finishCorners} disabled={cornerPts.length<3} style={{fontSize:"0.63rem",padding:"0.25rem 0.6rem",borderRadius:5,border:"none",background:cornerPts.length<3?"#334155":"linear-gradient(180deg,#34D399,#10B981)",color:"#fff",cursor:cornerPts.length<3?"default":"pointer",fontFamily:"inherit",fontWeight:700}}>Finish</button>
@@ -564,7 +592,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
           <DeepZoom BACKEND={BACKEND} jobId={results.jobId} pageNum={pageNum}>
           <div style={{position:"relative",display:"inline-block",maxWidth:"100%"}}>
             <img ref={imgRef} src={pageImage} alt={elev?.title} onLoad={e=>{setImgNaturalSize({w:e.target.naturalWidth,h:e.target.naturalHeight});setImgLoaded(true);}} style={{display:"block",maxWidth:"100%",maxHeight:"calc(100vh - 180px)",objectFit:"contain",borderRadius:6,border:"1px solid "+NAVY_LT}}/>
-            {imgLoaded&&<svg ref={svgRef} onClick={handleSvgClick} onMouseMove={handleSvgMove} onMouseUp={endDrag} onMouseLeave={endDrag} viewBox={`0 0 ${pageDims.width} ${pageDims.height}`} style={{position:"absolute",top:0,left:0,width:svgW,height:svgH,overflow:"visible",zIndex:2,cursor:(calibMode||bucketMode)?"crosshair":"default"}}>
+            {imgLoaded&&<svg ref={svgRef} onClick={handleSvgClick} onMouseMove={handleSvgMove} onMouseUp={endDrag} onMouseLeave={endDrag} viewBox={`0 0 ${pageDims.width} ${pageDims.height}`} style={{position:"absolute",top:0,left:0,width:svgW,height:svgH,overflow:"visible",zIndex:2,cursor:(calibMode||bucketMode||splitMode)?"crosshair":"default"}}>
               {displayZones.map(zone=>{
                 const a=getAssignment(zone.id);
                 let color="#94A3B8";
@@ -578,7 +606,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
                 const showLabel=!dimmed&&(zone.area_sf||0)>0;   // every surface carries its SF — same black-pill style as bucket fills
                 const labelTxt=zone.source==="claude_vision"&&!a?zone.material_type:Math.round(zone.area_sf).toLocaleString()+" SF";
                 const pillW=Math.max(64,(labelTxt||"").length*(pageDims.width/130));
-                return <g key={zone.id} style={{cursor:(calibMode||bucketMode)?"crosshair":"pointer",pointerEvents:groupMode?"none":"auto"}} onClick={e=>{if(calibMode||bucketMode||groupMode)return;e.stopPropagation();const k=gkey(zone);setActiveGroup(activeGroup===k?null:k);}}>
+                return <g key={zone.id} style={{cursor:(calibMode||bucketMode||splitMode)?"crosshair":"pointer",pointerEvents:groupMode?"none":"auto"}} onClick={e=>{if(calibMode||bucketMode||groupMode||splitMode)return;e.stopPropagation();const k=gkey(zone);setActiveGroup(activeGroup===k?null:k);}}>
                   {/* FLAT Bluebeam-style fill (the estimator's gold-standard look): solid color,
                       whisper outline — imperfect borders stop screaming, windows show as cutouts */}
                   <polygon points={pts} fill={color} fillOpacity={dimmed?0.07:isSel?0.66:0.5} stroke={isSel?"#fff":color} strokeWidth={isSel?2.5:1} strokeOpacity={dimmed?0.2:isSel?1:0.45}/>
