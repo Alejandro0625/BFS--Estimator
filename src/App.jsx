@@ -22,6 +22,20 @@ const CLUSTER_COLORS = ["#3B82F6","#F97316","#22C55E","#EC4899","#EAB308","#8B5C
 // stable distinct color for materials not in MAT_COLORS (vector/callout names vary per job)
 const hashColor = (s) => { let h=0; for(const ch of String(s||"")) h=(h*31+ch.charCodeAt(0))>>>0; return CLUSTER_COLORS[h%CLUSTER_COLORS.length]; };
 
+/* Material-family fingerprint: lets the Scope tab's materials list pre-check the Takeoff's
+   detected materials by MEANING, not exact spelling ("insulated metal wall panels" ↔
+   "Vertical panel - 3.0' seams" both = metal-panel family). Verify-first hint, never a gate. */
+const MAT_FAMILIES = [
+  ["metal-panel", /metl[\s-]?span|\bacm\b|\bmcm\b|composite panel|aluminum|insulated metal|\bimp\b|rib panel|metal (wall )?panel|vertical panel|horizontal panel|corrugated/i],
+  ["fiber-cement", /fiber|cement(?!itious mortar)|hardie|artisan|nichiha|swisspearl|cembrit/i],
+  ["lap-siding", /\blap\b|clapboard|\bsiding\b|courses|board\s*(&|and)\s*batten|shake|shingle|longboard|woodtone/i],
+  ["masonry", /brick|masonry|veneer|stone|terra[\s-]?cotta|cast stone|\bcmu\b|block|granite|precast/i],
+  ["trim-linear", /\btrim\b|soffit|fascia|coping|flashing|\bpvc\b|azek|watertable|j[\s-]?channel/i],
+  ["panel-generic", /\bpanel\b|\bpnl\b/i],
+];
+const matFamilies = (name) => MAT_FAMILIES.filter(([,re])=>re.test(String(name||""))).map(([f])=>f);
+const matFamilyMatch = (a, b) => { const fa=matFamilies(a); return fa.length>0 && matFamilies(b).some(f=>fa.includes(f)); };
+
 /* Default installed rates ($/SF, material+labor). Editable — these are ballpark starting points. */
 const DEFAULT_RATES = {
   "ACM Panel":38,"MCM Panel":40,"Fiber Cement Panel":22,"Fiber Cement Plank":18,
@@ -1006,11 +1020,10 @@ function ScopeSection({ title, tone, children }) {
 const OWNER = { BFS:{bg:"#DBEAFE",fg:"#1D4ED8",t:"YOU"}, others:{bg:"#F1F5F9",fg:"#64748B",t:"OTHERS"}, unclear:{bg:"#FEF3C7",fg:"#B45309",t:"ASK"} };
 
 /* ── Scope tab: read the project scope document, cross-check the bid ── */
-function ScopeView() {
+function ScopeView({ result=null, setResult=()=>{} }) {
   const [scopeFile, setScopeFile] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const fileRef = useRef();
   const extractText = async (f) => {
@@ -1044,12 +1057,16 @@ Return ONLY JSON (no markdown):
  "items":[
    {"line":"1","section":"General items","text":"concise scope item text under 140 chars","answer":"Y|N|?","reason":"short why — especially trade boundary: ours vs roofer vs window installer"}
  ],
- "questions":["the clarifications / RFIs to send the GC before bidding"]
+ "questions":["the clarifications / RFIs to send the GC before bidding"],
+ "materials":[
+   {"name":"the cladding/facade material as named in the scope (e.g. insulated metal wall panels, fiber cement siding, brick veneer)","ours":true,"note":"short why in/out of our scope"}
+ ]
 }
 Rules:
 - Include every real scope line; skip blank or header-only rows. Keep the line number and the section heading it falls under.
 - Trade-boundary lines (flashing, air & weather barrier, thru-wall flashing, counterflashing, sealant, soffit, roof edge): decide ours (Y) vs by-others (N) and say why; if truly unclear use "?".
 - "questions" = everything marked "?" plus any spec-vs-detail conflicts, pending prices, or missing info.
+- "materials" = every FACADE/CLADDING material the scope mentions (metal panel, fiber cement, lap siding, ACM, brick/masonry, stone, trim systems...), with "ours": true if this package installs it, false if it's by others (e.g. brick usually = mason's). This list pre-checks the takeoff.
 
 SCOPE DOCUMENT:
 ${text.slice(0,30000)}`;
@@ -1132,6 +1149,11 @@ ${text.slice(0,30000)}`;
             {result.questions?.length>0&&<ScopeSection title="❓ Questions to send the GC" tone="amber">
               <ul style={{margin:0,paddingLeft:"1.1rem"}}>{result.questions.map((q,i)=><li key={i} style={{fontSize:"0.74rem",color:"#92400E",marginBottom:"0.35rem",lineHeight:1.45}}>{q}</li>)}</ul>
             </ScopeSection>}
+            {result.materials?.length>0&&(
+              <div style={{padding:"0.6rem 0.85rem",background:"#F0FDF4",border:"1px solid #BBF7D0",borderRadius:10,fontSize:"0.7rem",color:"#15803D"}}>
+                🔗 <b>{result.materials.length} material{result.materials.length>1?"s":""} read from the scope</b> — {result.materials.filter(m=>m.ours).map(m=>m.name).join(", ")||"none ours"}{result.materials.some(m=>!m.ours)?` · by others: ${result.materials.filter(m=>!m.ours).map(m=>m.name).join(", ")}`:""}. The Takeoff tab now pre-checks detected surfaces against this list.
+              </div>
+            )}
             <div style={{fontSize:"0.6rem",letterSpacing:"0.1em",color:BLUE,textTransform:"uppercase",fontWeight:700}}>Scope checklist — review each Yes / No / Ask</div>
             <div style={{background:"#fff",borderRadius:10,border:"1px solid #EEF2F7",overflow:"hidden"}}>
               {items.map((it,idx)=>{
@@ -1643,6 +1665,7 @@ export default function BFSEstimator() {
   const [deletedStack, setDeletedStack] = useState([]); // undo history for deletes (persists with the bid too)
   const [bucketShapes, setBucketShapes] = useState([]); // walls the estimator bucket-added (fix AI misses) — lifted so they COUNT in the total, Budget & exports
   const [bucketColorNames, setBucketColorNames] = useState({}); // color -> material name (his Bluebeam habit: cyan IS PNL-1) — lifted, saves with the bid
+  const [scopeResult, setScopeResult] = useState(null); // Scope tab's analysis — lifted so it survives tab switches AND pre-checks the Takeoff's materials (specs decide what's ours)
 
   // ── UI polish: load real fonts + global interactions (the app referenced 'Inter' but never loaded it) ──
   useEffect(() => {
@@ -1817,7 +1840,7 @@ export default function BFSEstimator() {
     const id=results.jobId||String(Date.now());
     const rec={ id, projName:results.projName, savedAt:Date.now(),
       data:{ legend:results.legend, takeoffData:results.takeoffData, scheduleData:results.scheduleData||null, drawingSchedule:results.drawingSchedule||null, ocrMaterials:results.ocrMaterials||null, projName:results.projName, jobId:results.jobId },
-      assignments, pricing, hiddenIds, deletedStack, groupRename, bucketShapes, bucketColorNames };
+      assignments, pricing, hiddenIds, deletedStack, groupRename, bucketShapes, bucketColorNames, scopeResult };
     try{ localStorage.setItem("bfs_bid_"+id, JSON.stringify(rec)); refreshSaved(); }
     catch(e){ alert("Could not save bid: "+e.message); }
   };
@@ -1825,6 +1848,7 @@ export default function BFSEstimator() {
     setResults(rec.data); setAssignments(rec.assignments||{});
     setPricing(rec.pricing||{rates:{},wastePct:15,marginPct:20});
     setHiddenIds(rec.hiddenIds||{}); setDeletedStack(rec.deletedStack||[]); setGroupRename(rec.groupRename||{}); setBucketShapes(rec.bucketShapes||[]); setBucketColorNames(rec.bucketColorNames||{});
+    if(rec.scopeResult) setScopeResult(rec.scopeResult);
     setPhase("done"); setViewMode("table"); setFile(null);
   };
   const deleteBid=(id,ev)=>{ if(ev)ev.stopPropagation(); try{ localStorage.removeItem("bfs_bid_"+id); }catch{} refreshSaved(); };
@@ -1842,6 +1866,19 @@ export default function BFSEstimator() {
   }:null;
   const summaryData = summary ? summary() : null;
   const grandAdj = summaryData ? Object.values(summaryData).reduce((s,v)=>s+v.adj,0) : 0;
+  // SCOPE→TAKEOFF pre-check: match each detected material against the Scope tab's materials
+  // list (family match, not spelling). Result = hint badges + "in scope but not detected"
+  // reconciliation. Verify-first: informs the estimator, never auto-drops a single SF.
+  const scopeCheck = (()=>{
+    const mats = scopeResult?.materials; if(!mats||!mats.length||!summaryData) return null;
+    const rows = Object.keys(summaryData).map(cat=>{
+      const hits = mats.filter(m=>matFamilyMatch(cat, m.name));
+      const best = hits.find(m=>m.ours===true) || hits.find(m=>m.ours===false) || hits[0] || null;
+      return { cat, verdict: best ? (best.ours ? "ours" : "others") : "unknown", scopeName: best?.name, note: best?.note };
+    });
+    const missing = mats.filter(m=>m.ours===true && !Object.keys(summaryData).some(cat=>matFamilyMatch(cat, m.name)));
+    return { rows, missing };
+  })();
   // Reviewed takeoff = what the user assigned in Interactive; drives the bid when present
   const reviewedSummary = Object.values(assignments).reduce((acc,a)=>{
     const cat=dispName(a.category||a.materialName||"Panel"); if(!acc[cat])acc[cat]={net:0}; acc[cat].net+=a.area_sf||0; return acc;
@@ -1963,7 +2000,7 @@ export default function BFSEstimator() {
         </div>
       </header>
 
-      {appTab==="scope"&&<ScopeView/>}
+      {appTab==="scope"&&<ScopeView result={scopeResult} setResult={setScopeResult}/>}
       {appTab==="model"&&<ModelView/>}
       {appTab==="budget"&&(
         <div style={{flex:1,overflowY:"auto",padding:"2rem"}}>
@@ -2244,6 +2281,34 @@ export default function BFSEstimator() {
                     <span style={{fontSize:"0.85rem",fontWeight:800,color:BLUE}}>{Math.round(grandAdj).toLocaleString()} SF</span>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* SCOPE CHECK — the Scope tab's conclusions pre-check the detected materials */}
+            {scopeCheck&&(
+              <div>
+                <div style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"0.6rem"}}>🔗 Scope check</div>
+                <div style={{border:"1px solid #DDE7F2",borderRadius:8,overflow:"hidden"}}>
+                  {scopeCheck.rows.map((r,i)=>{
+                    const badge = r.verdict==="ours" ? {t:"IN SCOPE",bg:"#DCFCE7",fg:"#15803D"} : r.verdict==="others" ? {t:"BY OTHERS",bg:"#FEE2E2",fg:"#B91C1C"} : {t:"NOT IN SCOPE DOC",bg:"#F1F5F9",fg:"#64748B"};
+                    return (
+                      <div key={i} style={{display:"flex",alignItems:"center",gap:"0.5rem",padding:"0.42rem 0.6rem",background:i%2?"#F8FAFC":"#fff",borderTop:i?"1px solid #F1F5F9":"none"}} title={r.scopeName?`Scope: ${r.scopeName}${r.note?" — "+r.note:""}`:""}>
+                        <span style={{fontSize:"0.64rem",color:"#334155",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.cat}</span>
+                        <span style={{fontSize:"0.52rem",fontWeight:800,padding:"0.14rem 0.4rem",borderRadius:4,background:badge.bg,color:badge.fg,flexShrink:0}}>{badge.t}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {scopeCheck.missing.length>0&&(
+                  <div style={{marginTop:"0.5rem",padding:"0.5rem 0.65rem",background:"#FFFBEB",border:"1px dashed #F59E0B",borderRadius:8}}>
+                    <div style={{fontSize:"0.58rem",fontWeight:800,color:"#B45309",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:"0.25rem"}}>⚠ In scope but not detected</div>
+                    {scopeCheck.missing.map((m,i)=>(
+                      <div key={i} style={{fontSize:"0.62rem",color:"#92400E",lineHeight:1.45}}>• {m.name}{m.note?<span style={{color:"#B45309"}}> — {m.note}</span>:""}</div>
+                    ))}
+                    <div style={{fontSize:"0.55rem",color:"#B45309",marginTop:"0.3rem"}}>The scope says these are yours — check the drawings for faces the auto-detect missed.</div>
+                  </div>
+                )}
+                <div style={{fontSize:"0.56rem",color:"#94A3B8",marginTop:"0.35rem",lineHeight:1.4}}>Matched against the Scope tab's material list — a hint, not a gate. Nothing is dropped automatically.</div>
               </div>
             )}
 
