@@ -1881,6 +1881,10 @@ export default function BFSEstimator() {
   const reviewOk = reviewElevs.length>0 && defaultScaleN===0 && scaleWarnN===0 && labelWarnN===0;
   // Estimator's LINEAR (LF) measurements — trim/soffit/fascia captured from polyline markups
   const linearRollup = (()=>{ const m={}; (results?.takeoffData||[]).forEach(e=>(e.linearItems||[]).forEach(it=>{const k=dispName(it.material||"Linear");if(!m[k])m[k]=0;m[k]+=it.lf||0;})); return Object.entries(m).map(([material,lf])=>({material,lf})).sort((a,b)=>b.lf-a.lf); })();
+  // SUGGESTED trim derived from face geometry (backend autoTrim) — verify-first, kept SEPARATE
+  // from the estimator's confirmed linear measurements so an unverified LF never enters a bid.
+  const autoTrimRollup = (()=>{ const m={}; (results?.takeoffData||[]).forEach(e=>(e.autoTrim||[]).forEach(it=>{const k=it.material||"Trim (auto)";if(!m[k])m[k]=0;m[k]+=it.lf||0;})); return Object.entries(m).map(([material,lf])=>({material,lf})).sort((a,b)=>b.lf-a.lf); })();
+  const autoTrimTotalLF = autoTrimRollup.reduce((s,r)=>s+r.lf,0);
   // ── Budget tab: SF (+ LF trim) × the rates the estimator sets per job → live bid + one-click Excel ──
   const setRate = (cat,v)=>setPricing(p=>({...p,rates:{...p.rates,[cat]:v}}));
   const setLfRate = (m,v)=>setPricing(p=>({...p,lfRates:{...(p.lfRates||{}),[m]:v}}));
@@ -2303,6 +2307,21 @@ export default function BFSEstimator() {
                   ))}
                 </div>
                 <div style={{fontSize:"0.58rem",color:"#64748B",marginTop:"0.4rem"}}>Captured from linear markups — priced per LF, separate from panel SF.</div>
+              </div>
+            )}
+
+            {autoTrimRollup.length>0&&(
+              <div>
+                <div style={{fontSize:"0.6rem",color:"#B45309",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"0.6rem"}}>Suggested trim (verify) · {Math.round(autoTrimTotalLF).toLocaleString()} LF</div>
+                <div style={{border:"1px dashed #F59E0B",borderRadius:8,overflow:"hidden",background:"#FFFBEB"}}>
+                  {autoTrimRollup.map((r,i)=>(
+                    <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"0.4rem 0.7rem",fontSize:"0.7rem",borderTop:i?"1px solid #FDE68A":"none"}}>
+                      <span style={{color:"#334155"}}>{r.material}</span>
+                      <span style={{fontWeight:700,color:"#92400E"}}>{Math.round(r.lf).toLocaleString()} LF</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{fontSize:"0.58rem",color:"#92400E",marginTop:"0.4rem"}}>Auto-derived from the detected faces (corners, base/top, openings). Estimates to verify — NOT priced automatically.</div>
               </div>
             )}
 
