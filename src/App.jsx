@@ -2218,12 +2218,28 @@ export default function BFSEstimator() {
               </div>
             )}
 
-            {/* Feature pills */}
+            {/* What happens to your file — the pipeline, in the estimator's language */}
             {!file&&!isRunning&&(
-              <div style={{display:"flex",justifyContent:"center",gap:"0.5rem",flexWrap:"wrap"}}>
-                {["Reads drawing geometry","Deep zoom","Elevations","Excel Export","Evidence PDF"].map(tag=>(
-                  <div key={tag} style={{padding:"0.3rem 0.75rem",borderRadius:20,background:"rgba(74,134,200,0.1)",border:"1px solid rgba(74,134,200,0.2)",fontSize:"0.68rem",color:"rgba(74,134,200,0.8)",fontWeight:500}}>{tag}</div>
-                ))}
+              <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:"1.1rem 1.25rem"}}>
+                <div style={{fontSize:"0.6rem",letterSpacing:"0.14em",color:"rgba(127,176,224,0.8)",textTransform:"uppercase",fontWeight:700,marginBottom:"0.8rem"}}>Drop the full set — here's what happens</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"0.7rem 1rem"}}>
+                  {[
+                    ["1","Finds the elevations","Scans every sheet of the full set — plans, details and schedules are passed over, elevation views are pulled out"],
+                    ["2","Reads the drawing itself","Panel seams, lap courses, hatch patterns, wall fills, structural joints and material tags (MT-5, EIFS-3…) — measured from the drawing's own geometry, never guessed"],
+                    ["3","Marks it up like an estimator","Each wall arrives as its own highlighted piece with windows cut out and its SF on a label — the same way a hand takeoff looks"],
+                    ["4","Checks its own numbers","Scale verified three ways: title block, dimension strings, elevation markers. If they disagree, it tells you to calibrate — it never ships a confident wrong number"],
+                    ["5","You select scope & price","Bucket-click the materials that are yours, set rates in Budget — exact SF flows to the BFS Excel and the evidence PDF"],
+                    ["6","Every correction teaches it","Renames, deletes, splits and your final export all train the system on your standards — it reads the next set better than the last"],
+                  ].map(([n,t,d])=>(
+                    <div key={n} style={{display:"flex",gap:"0.6rem",alignItems:"flex-start"}}>
+                      <div style={{width:22,height:22,borderRadius:"50%",background:"linear-gradient(135deg,#3F79BC,#5A92D2)",color:"#fff",fontSize:"0.68rem",fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>{n}</div>
+                      <div>
+                        <div style={{fontSize:"0.74rem",fontWeight:700,color:"rgba(255,255,255,0.88)"}}>{t}</div>
+                        <div style={{fontSize:"0.62rem",color:"rgba(255,255,255,0.42)",lineHeight:1.5,marginTop:2}}>{d}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
