@@ -36,6 +36,32 @@ const MAT_FAMILIES = [
 const matFamilies = (name) => MAT_FAMILIES.filter(([,re])=>re.test(String(name||""))).map(([f])=>f);
 const matFamilyMatch = (a, b) => { const fa=matFamilies(a); return fa.length>0 && matFamilies(b).some(f=>fa.includes(f)); };
 
+/* While the engine works, tell the story of what it's doing — in estimator language.
+   Every line is a real step of the pipeline, not marketing. */
+const NARRATION = [
+  "📄 Finding the elevation sheets in the set…",
+  "📏 Reading the scale three ways — title block, dimension strings, level markers…",
+  "🧵 Tracing panel seams and lap courses in the drawing's own geometry…",
+  "🎨 Reading color-coded siding areas and matching them to the legend…",
+  "🏷️ Picking up material tags — MT-5, EIFS-3, SFC — straight off the walls…",
+  "✂️ Splitting walls at structural joints, the way an estimator would…",
+  "🪟 Cutting out windows and doors where the pattern breaks…",
+  "🧮 Measuring every wall from the drawing's coordinates — never guessing…",
+  "🔍 Checking soffits, returns and canopies so nothing gets forgotten…",
+  "✅ Double-checking totals against the drawing's own schedule…",
+];
+function LiveNarration(){
+  const [i,setI]=useState(0);
+  useEffect(()=>{ const t=setInterval(()=>setI(v=>(v+1)%NARRATION.length),2300); return ()=>clearInterval(t); },[]);
+  return (
+    <div style={{minHeight:22,marginBottom:"0.6rem"}}>
+      <div key={i} style={{fontSize:"0.82rem",fontWeight:600,color:"#AFCDEE",animation:"bfsFadeUp 0.45s cubic-bezier(.2,.8,.2,1)"}}>
+        {NARRATION[i]}
+      </div>
+    </div>
+  );
+}
+
 /* Default installed rates ($/SF, material+labor). Editable — these are ballpark starting points. */
 const DEFAULT_RATES = {
   "ACM Panel":38,"MCM Panel":40,"Fiber Cement Panel":22,"Fiber Cement Plank":18,
@@ -2187,6 +2213,7 @@ export default function BFSEstimator() {
               )}
               {isRunning&&(
                 <div style={{padding:"0.5rem 0"}}>
+                  <LiveNarration/>
                   <div style={{fontSize:"0.72rem",color:"rgba(255,255,255,0.4)",marginBottom:"0.75rem",letterSpacing:"0.05em"}}>{progress.label||"Analyzing..."}</div>
                   <div style={{background:"rgba(255,255,255,0.08)",borderRadius:8,height:6,overflow:"hidden",marginBottom:"0.75rem"}}>
                     <div style={{width:(progress.pct||0)+"%",height:"100%",background:"linear-gradient(180deg,#5A92D2,#3F79BC)",borderRadius:8,transition:"width 0.4s"}}/>
