@@ -672,6 +672,15 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
             <div style={{padding:"0.65rem",marginBottom:"0.75rem",background:NAVY_LT,borderRadius:8,border:"1px solid "+BLUE+"55",textAlign:"center"}}>
               <div style={{fontSize:"1.6rem",fontWeight:800,color:"#fff",lineHeight:1.1}}>{Math.round(selectedSF).toLocaleString()} <span style={{fontSize:"0.7rem",fontWeight:400,color:"#94A3B8"}}>SF</span></div>
               <div style={{fontSize:"0.6rem",color:"#94A3B8",marginTop:3}}>{selectedZones.length} area{selectedZones.length!==1?"s":""} with this pattern</div>
+              {(()=>{ /* TRUST = show the arithmetic: gross − openings = net, verifiable in seconds */
+                const cs=selectedZones.map(z=>z.sf_calc).filter(Boolean);
+                if(!cs.length) return null;
+                const g=cs.reduce((s,c)=>s+(c.gross_sf||0),0), o=cs.reduce((s,c)=>s+(c.openings_sf||0),0), n=cs.reduce((s,c)=>s+(c.n_openings||0),0);
+                return <div style={{fontSize:"0.6rem",color:"#7FB0E0",marginTop:5,padding:"0.3rem 0.4rem",background:"rgba(0,0,0,0.25)",borderRadius:5,fontVariantNumeric:"tabular-nums"}}>
+                  {Math.round(g).toLocaleString()} gross − {Math.round(o).toLocaleString()} openings{n?` (${n})`:""} = <b style={{color:"#fff"}}>{Math.round(g-o).toLocaleString()} SF</b>
+                  <div style={{color:"#64748B",marginTop:1}}>{cs[0].basis} · measured from the drawing's own coordinates</div>
+                </div>;
+              })()}
             </div>
             <div style={{marginBottom:"0.7rem"}}>
               <div style={{fontSize:"0.6rem",color:"#64748B",marginBottom:"0.3rem"}}>Name this group → applies to <b style={{color:"#94A3B8"}}>every page</b> + the Excel:</div>
