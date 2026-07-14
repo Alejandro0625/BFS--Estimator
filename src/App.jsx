@@ -1352,6 +1352,7 @@ function ModelView() {
         <div style={{fontSize:"0.7rem",letterSpacing:"0.18em",color:BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"0.4rem"}}>The Model</div>
         <h2 style={{fontSize:"1.6rem",fontWeight:800,color:"#0F172A",margin:"0 0 0.4rem",letterSpacing:"-0.02em"}}>Trained on Boston Facade Systems' own work</h2>
         <p style={{fontSize:"0.85rem",color:"#9FB3CC",lineHeight:1.6,margin:"0 0 1.75rem",maxWidth:660}}>This isn't generic AI. It learns to highlight materials and trace shapes the way <i>your</i> estimators do — from every takeoff your team has ever marked up. The more bids you run, the sharper it gets. No competitor can copy this — it's your data.</p>
+        <CompareLab/>
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"0.75rem",marginBottom:"1.75rem"}}>
           {[["657","marked takeoffs"],["16,368","labeled regions"],["2024–26","3 years"],["12","material types"]].map(([n,l])=>(
             <div key={l} style={{padding:"1rem",background:"#fff",borderRadius:12,border:"1px solid #EEF2F7",textAlign:"center"}}>
