@@ -1227,6 +1227,121 @@ const MOAT_MATERIALS = [
   ["Shingle / Shake", 106],
   ["Board & Batten", 104],
 ];
+/* ── Compare Lab: upload a MARKED takeoff → AI reads the stripped blank sheet →
+      side-by-side "Estimator vs AI" on the same drawing, graded wall by wall.
+      The killer demo: proof the system converges on the estimator's own work. ── */
+function CompareLab() {
+  const [st, setSt] = useState({ phase: "idle" });
+  const inputRef = useRef();
+  const pollRef = useRef(null);
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+  const run = async (file) => {
+    if (!file) return;
+    setSt({ phase: "running", label: "Uploading the marked takeoff…" });
+    try {
+      const fd = new FormData(); fd.append("pdf", file);
+      const res = await (await fetch(BACKEND + "/compare", { method: "POST", body: fd })).json();
+      const jobId = res.jobId;
+      pollRef.current = setInterval(async () => {
+        try {
+          const r = await (await fetch(BACKEND + "/compare-result/" + jobId)).json();
+          if (r.status === "done" && r.compare) {
+            clearInterval(pollRef.current); pollRef.current = null;
+            setSt({ phase: "done", jobId, data: r.compare });
+          } else if (r.status === "error") {
+            clearInterval(pollRef.current); pollRef.current = null;
+            setSt({ phase: "error", error: r.error || "Comparison failed" });
+          } else {
+            setSt(s => ({ ...s, label: (r.progress || {}).label || "AI reading the blank sheet…" }));
+          }
+        } catch {}
+      }, 4000);
+    } catch (e) { setSt({ phase: "error", error: String(e) }); }
+  };
+  const P = (pts) => pts.map(p => `${(p[0] * 1000).toFixed(1)},${(p[1] * 1000).toFixed(1)}`).join(" ");
+  const Pane = ({ jobId, page, polys, holes, color, title, total }) => (
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ fontSize: "0.62rem", fontWeight: 800, color: "#334155", marginBottom: 4 }}>{title}</div>
+      <div style={{ position: "relative", border: "1px solid #E2E8F0", borderRadius: 8, overflow: "hidden", background: "#fff" }}>
+        <img src={`${BACKEND}/page-image/${jobId}/${page}`} alt={title} style={{ width: "100%", display: "block" }} />
+        <svg viewBox="0 0 1000 1000" preserveAspectRatio="none"
+             style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
+          {polys.map((p, i) => (
+            <polygon key={i} points={P(p.points)} fill={color} fillOpacity="0.42" stroke={color} strokeOpacity="0.85" strokeWidth="1.2" />
+          ))}
+          {(holes || []).map((h, i) => (
+            <polygon key={"h" + i} points={P(h)} fill="#fff" fillOpacity="0.9" />
+          ))}
+        </svg>
+      </div>
+      <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "#0F172A", marginTop: 4 }}>{Math.round(total).toLocaleString()} SF</div>
+    </div>
+  );
+  return (
+    <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #EEF2F7", padding: "1.1rem 1.25rem", marginBottom: "1.5rem" }}>
+      <div style={{ fontSize: "0.6rem", letterSpacing: "0.1em", color: BLUE, textTransform: "uppercase", fontWeight: 700, marginBottom: "0.35rem" }}>⚔️ Compare Lab — estimator vs AI, same drawing</div>
+      <div style={{ fontSize: "0.7rem", color: "#64748B", lineHeight: 1.55, marginBottom: "0.75rem" }}>
+        Drop any <b>marked-up</b> Bluebeam set. The system reads the takeoff exactly, <b>strips it to a blank sheet</b>, does its own takeoff from scratch, and grades itself against every wall you measured. Nothing hidden — this is the benchmark, live.
+      </div>
+      {st.phase !== "done" && (
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          <button onClick={() => inputRef.current && inputRef.current.click()} disabled={st.phase === "running"}
+                  style={{ padding: "0.55rem 1.1rem", borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 800, fontSize: "0.75rem", background: st.phase === "running" ? "#CBD5E1" : BLUE, color: "#fff" }}>
+            {st.phase === "running" ? "Running…" : "Upload a marked takeoff"}
+          </button>
+          {st.phase === "running" && <span style={{ fontSize: "0.68rem", color: "#64748B" }}>{st.label}</span>}
+          {st.phase === "error" && <span style={{ fontSize: "0.68rem", color: "#B91C1C" }}>{st.error}</span>}
+          <input ref={inputRef} type="file" accept="application/pdf" style={{ display: "none" }}
+                 onChange={e => run(e.target.files && e.target.files[0])} />
+        </div>
+      )}
+      {st.phase === "done" && st.data && (() => {
+        const s = st.data.summary || {};
+        return (
+          <div>
+            <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.9rem" }}>
+              {[[`${s.money} of ${s.walls}`, "walls MONEY-RIGHT, pre-human", s.money / Math.max(1, s.walls) >= 0.6 ? "#15803D" : "#B45309"],
+                [`${s.found} of ${s.walls}`, "walls found", "#334155"],
+                [`${Math.round(s.hisTotal).toLocaleString()}`, "estimator total SF", "#334155"],
+                [`${Math.round(s.ourTotal).toLocaleString()}`, "AI total SF (full sheet)", "#334155"]].map(([n, l, c]) => (
+                <div key={l} style={{ padding: "0.55rem 0.8rem", background: "#F8FAFC", borderRadius: 8, border: "1px solid #EEF2F7" }}>
+                  <div style={{ fontSize: "1.05rem", fontWeight: 800, color: c }}>{n}</div>
+                  <div style={{ fontSize: "0.56rem", color: "#94A3B8" }}>{l}</div>
+                </div>
+              ))}
+              <button onClick={() => setSt({ phase: "idle" })} style={{ marginLeft: "auto", alignSelf: "center", padding: "0.4rem 0.8rem", borderRadius: 8, border: "1px solid #E2E8F0", background: "#fff", cursor: "pointer", fontSize: "0.66rem", fontWeight: 700, color: "#475569" }}>Run another</button>
+            </div>
+            {st.data.pages.map(pg => (
+              <div key={pg.page} style={{ marginBottom: "1.1rem" }}>
+                <div style={{ fontSize: "0.66rem", fontWeight: 800, color: "#475569", margin: "0.4rem 0" }}>Page {pg.page}{!pg.scale_confirmed && <span style={{ color: "#B45309" }}> · scale unconfirmed</span>}</div>
+                <div style={{ display: "flex", gap: "0.75rem" }}>
+                  <Pane jobId={st.jobId} page={pg.page} polys={pg.his} color="#15803D" title="ESTIMATOR (hand-marked)" total={pg.hisTotal} />
+                  <Pane jobId={st.jobId} page={pg.page} polys={pg.ours} holes={pg.ours.flatMap(o => o.holes || [])} color="#3F79BC" title="AI (from the blank sheet)" total={pg.ourTotal} />
+                </div>
+                <div style={{ marginTop: "0.5rem" }}>
+                  {pg.walls.map((w, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.25rem 0", borderBottom: "1px solid #F1F5F9", fontSize: "0.68rem" }}>
+                      <div style={{ width: 190, color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.mat}</div>
+                      <div style={{ width: 90, textAlign: "right", fontWeight: 700, color: "#0F172A" }}>{Math.round(w.sf).toLocaleString()} SF</div>
+                      <div style={{ width: 20, textAlign: "center", color: "#94A3B8" }}>→</div>
+                      <div style={{ width: 90, textAlign: "right", fontWeight: 700, color: "#334155" }}>{Math.round(w.got).toLocaleString()} SF</div>
+                      <div style={{ width: 70, textAlign: "right", color: "#64748B" }}>cov {Math.round(w.cov * 100)}%</div>
+                      {w.money
+                        ? <span style={{ fontSize: "0.6rem", fontWeight: 800, color: "#15803D", background: "#DCFCE7", borderRadius: 6, padding: "0.1rem 0.45rem" }}>MONEY ✓</span>
+                        : <span style={{ fontSize: "0.6rem", fontWeight: 700, color: "#B45309", background: "#FEF3C7", borderRadius: 6, padding: "0.1rem 0.45rem" }}>{w.cov >= 0.3 ? "close" : "miss"}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <div style={{ fontSize: "0.6rem", color: "#94A3B8", marginTop: "0.4rem" }}>MONEY ✓ = the AI's assembled SF for that wall lands within ±15% with ≥70% shape coverage — the same bar the internal benchmark uses.</div>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
 function ModelView() {
   const maxN = Math.max(...MOAT_MATERIALS.map(m=>m[1]));
   const [auto, setAuto] = useState(null);   // live autonomy meter: auto output vs human-confirmed finals
@@ -2416,6 +2531,14 @@ export default function BFSEstimator() {
                 <div style={{fontSize:"0.56rem",color:"#94A3B8",marginTop:"0.35rem",lineHeight:1.4}}>The architect's stated quantities, read straight off the drawing — check your takeoff against them.</div>
               </div>
             )}
+
+            {/* Window/door COUNT surface — openings the readers detected + cut out of the SF */}
+            {(()=>{const oc=(results.takeoffData||[]).reduce((s,e)=>s+(e.openingsCount||0),0);return oc>0&&(
+              <div style={{border:"1px solid #DDE7F2",borderRadius:8,padding:"0.55rem 0.7rem",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{fontSize:"0.62rem",color:"#475569"}}>🪟 <b>Openings detected</b> (windows/doors cut from SF)</span>
+                <span style={{fontSize:"0.8rem",fontWeight:800,color:BLUE}}>{oc}</span>
+              </div>
+            );})()}
 
             {/* Openings from schedule */}
             {results.scheduleData&&results.scheduleData.total_opening_sf>0&&(
