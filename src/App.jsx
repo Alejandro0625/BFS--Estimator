@@ -722,8 +722,24 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
                 };
                 const rs=[...new Set(selectedZones.map(readerOf))];
                 if(!rs.length) return null;
+                /* per-wall CONFIDENCE from real signals: exact markup > drawn statement
+                   (fill/color/hatch/seams with math trail) > model/flood guesses;
+                   generic names and missing math trails lower it. */
+                const confOf=(z)=>{const m=((z.group||z.material)||"")+"";
+                  if(z.source==="bluebeam"||z.source==="bluebeam-linear") return 3;
+                  let c=2;
+                  if(!z.sf_calc) c-=1;
+                  if(/^Wall area|^Wall band/.test(m)) c-=1;
+                  if(m.startsWith("Wall area (AI boundary")) c=1;
+                  return Math.max(1,c);
+                };
+                const cmin=Math.min(...selectedZones.map(confOf));
+                const chip=cmin>=3?["HIGH — exact from your markup","#DCFCE7","#15803D"]:
+                           cmin===2?["SOLID — drawn geometry + math trail","#DBEAFE","#1D4ED8"]:
+                                    ["VERIFY — assist-level read, check before pricing","#FEF3C7","#B45309"];
                 return <div style={{fontSize:"0.58rem",color:"#94A3B8",marginTop:4}}>
                   📖 Read by: <b style={{color:"#CBD5E1"}}>{rs.join(" + ")}</b>
+                  <div style={{marginTop:3}}><span style={{fontSize:"0.56rem",fontWeight:800,color:chip[2],background:chip[1],borderRadius:5,padding:"0.1rem 0.4rem"}}>{chip[0]}</span></div>
                 </div>;
               })()}
             </div>
