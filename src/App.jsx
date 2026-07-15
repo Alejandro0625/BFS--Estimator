@@ -707,6 +707,25 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
                   <div style={{color:"#64748B",marginTop:1}}>{cs[0].basis} · measured from the drawing's own coordinates</div>
                 </div>;
               })()}
+              {(()=>{ /* TRUST: which reader measured this — provenance, not mystery */
+                const readerOf=(z)=>{const m=((z.group||z.material)||"")+"";
+                  if(z.source==="bluebeam"||z.source==="bluebeam-linear") return "Your Bluebeam markup (exact)";
+                  if(m.startsWith("Hatched area")) return "Hatch-pattern reader";
+                  if(m.startsWith("Color fill")) return "Drawn color fills";
+                  if(m.startsWith("Rendered")) return "Rendered-elevation reader";
+                  if(m.startsWith("Wall area (AI boundary")) return "AI boundary model (v13)";
+                  if(m.startsWith("Wall band")) return "Story-band reader";
+                  if(m.startsWith("Wall area")) return "Structural flood fill";
+                  if(m.startsWith("Panel wall")) return "Drawn wall fills";
+                  if(/vertical panel|horizontal panel|lap \/|courses|seams/i.test(m)) return "Seam-pattern reader";
+                  return z.source==="model"?"Trained extent model":"Drawing geometry";
+                };
+                const rs=[...new Set(selectedZones.map(readerOf))];
+                if(!rs.length) return null;
+                return <div style={{fontSize:"0.58rem",color:"#94A3B8",marginTop:4}}>
+                  📖 Read by: <b style={{color:"#CBD5E1"}}>{rs.join(" + ")}</b>
+                </div>;
+              })()}
             </div>
             <div style={{marginBottom:"0.7rem"}}>
               <div style={{fontSize:"0.6rem",color:"#64748B",marginBottom:"0.3rem"}}>Name this group → applies to <b style={{color:"#94A3B8"}}>every page</b> + the Excel:</div>
