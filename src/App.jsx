@@ -2209,9 +2209,9 @@ export default function BFSEstimator() {
             <div style={{fontSize:"1.05rem",fontWeight:700,color:BLUE,letterSpacing:"-0.02em"}}>AI Estimator</div>
           </div>
         </div>
-        {/* Primary nav: 3 tabs, deep-blue sliding underline */}
+        {/* Primary nav: Estimator (job workspace incl. pricing) · Scope Reader */}
         <nav style={{display:"flex",gap:"0.4rem",height:"100%"}}>
-          {[["estimator","Estimator",["takeoff","queue","manual","model"]],["scope","Scope Reader",["scope"]],["budget","Suggested Pricing",["budget"]]].map(([key,label,members])=>{
+          {[["estimator","Estimator",["takeoff","queue","manual","model","budget"]],["scope","Scope Reader",["scope"]]].map(([key,label,members])=>{
             const active=members.includes(appTab);
             return (
               <button key={key} onClick={()=>setAppTab(members[0])}
@@ -2234,13 +2234,14 @@ export default function BFSEstimator() {
           )}
         </div>
       </header>
-      {/* Estimator inner rail: Takeoff · Queue · Draw · Model (only inside Estimator) */}
-      {["takeoff","queue","manual","model"].includes(appTab)&&(
-        <div style={{background:"#FFFFFF",borderBottom:"1px solid #E3EAF3",padding:"0 2rem",display:"flex",gap:"0.3rem",flexShrink:0,zIndex:9}}>
-          {[["takeoff","Takeoff"],["queue","Queue"],["manual","Draw"],["model","Model"]].map(([t,label])=>(
+      {/* Estimator inner rail — CENTERED like the top nav; per-job tools incl. pricing;
+          dark-blue type so it reads against any canvas */}
+      {["takeoff","queue","manual","model","budget"].includes(appTab)&&(
+        <div style={{background:"#FFFFFF",borderBottom:"1px solid #E3EAF3",padding:"0 2rem",display:"flex",justifyContent:"center",gap:"0.3rem",flexShrink:0,zIndex:9}}>
+          {[["takeoff","Takeoff"],["queue","Queue"],["manual","Draw"],["model","Model"],["budget","Suggested Pricing"]].map(([t,label])=>(
             <button key={t} onClick={()=>setAppTab(t)}
               style={{padding:"0.55rem 1rem",border:"none",background:"transparent",cursor:"pointer",fontFamily:"inherit",
-                      fontSize:"0.74rem",fontWeight:appTab===t?700:500,color:appTab===t?BLUE:"#8DA3BC",
+                      fontSize:"0.74rem",fontWeight:appTab===t?700:600,color:appTab===t?BLUE:BLUE_DARK,
                       borderBottom:appTab===t?`2px solid ${TEAL}`:"2px solid transparent",transition:"color 0.18s ease-out, border-color 0.18s ease-out"}}>
               {label}
             </button>
