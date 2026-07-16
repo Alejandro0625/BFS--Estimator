@@ -2556,21 +2556,21 @@ export default function BFSEstimator() {
 
             {/* SCOPE CHECK — the Scope tab's conclusions pre-check the detected materials */}
             {scopeCheck&&(
-              <div>
-                <div style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"0.6rem"}}>🔗 Scope check</div>
-                <div style={{border:"1px solid #DDE7F2",borderRadius:8,overflow:"hidden"}}>
+              <div style={{background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",overflow:"hidden"}}>
+                <div style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",padding:"0.7rem 0.85rem 0.45rem",borderBottom:"1px solid #EDF2F8"}}>Scope check</div>
+                <div>
                   {scopeCheck.rows.map((r,i)=>{
-                    const badge = r.verdict==="ours" ? {t:"IN SCOPE",bg:"#DCFCE7",fg:"#15803D"} : r.verdict==="others" ? {t:"BY OTHERS",bg:"#FEE2E2",fg:"#B91C1C"} : {t:"NOT IN SCOPE DOC",bg:"#F1F5F9",fg:"#64748B"};
+                    const badge = r.verdict==="ours" ? {t:"IN SCOPE",bg:"#E6FBF4",fg:"#0E7A5F",bd:"#7DE3C3"} : r.verdict==="others" ? {t:"BY OTHERS",bg:"#FEF1F1",fg:"#B42318",bd:"#F4A9A3"} : {t:"NOT IN SCOPE DOC",bg:"#F4F7FB",fg:"#64748B",bd:"#D7E1EC"};
                     return (
-                      <div key={i} style={{display:"flex",alignItems:"center",gap:"0.5rem",padding:"0.42rem 0.6rem",background:i%2?"#F8FAFC":"#fff",borderTop:i?"1px solid #F1F5F9":"none"}} title={r.scopeName?`Scope: ${r.scopeName}${r.note?" — "+r.note:""}`:""}>
-                        <span style={{fontSize:"0.64rem",color:"#334155",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.cat}</span>
-                        <span style={{fontSize:"0.52rem",fontWeight:800,padding:"0.14rem 0.4rem",borderRadius:4,background:badge.bg,color:badge.fg,flexShrink:0}}>{badge.t}</span>
+                      <div key={i} style={{display:"flex",alignItems:"center",gap:"0.5rem",padding:"0.5rem 0.85rem",borderTop:i?"1px solid #F2F6FA":"none"}} title={r.scopeName?`Scope: ${r.scopeName}${r.note?" — "+r.note:""}`:""}>
+                        <span style={{fontSize:"0.68rem",color:"#3D4E63",fontWeight:500,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.cat}</span>
+                        <span style={{fontSize:"0.52rem",fontWeight:800,padding:"0.16rem 0.45rem",borderRadius:99,background:badge.bg,color:badge.fg,border:"1px solid "+badge.bd,letterSpacing:"0.04em",flexShrink:0}}>{badge.t}</span>
                       </div>
                     );
                   })}
                 </div>
                 {scopeCheck.missing.length>0&&(
-                  <div style={{marginTop:"0.5rem",padding:"0.5rem 0.65rem",background:"#FFFBEB",border:"1px dashed #F59E0B",borderRadius:8}}>
+                  <div style={{margin:"0.5rem 0.85rem 0.65rem",padding:"0.5rem 0.65rem",background:"#FFFBEB",border:"1px dashed #F59E0B",borderRadius:10}}>
                     <div style={{fontSize:"0.58rem",fontWeight:800,color:"#B45309",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:"0.25rem"}}>⚠ In scope but not detected</div>
                     {scopeCheck.missing.map((m,i)=>(
                       <div key={i} style={{fontSize:"0.62rem",color:"#92400E",lineHeight:1.45}}>• {m.name}{m.note?<span style={{color:"#B45309"}}> — {m.note}</span>:""}</div>
@@ -2578,23 +2578,23 @@ export default function BFSEstimator() {
                     <div style={{fontSize:"0.55rem",color:"#B45309",marginTop:"0.3rem"}}>The scope says these are yours — check the drawings for faces the auto-detect missed.</div>
                   </div>
                 )}
-                <div style={{fontSize:"0.56rem",color:"#94A3B8",marginTop:"0.35rem",lineHeight:1.4}}>Matched against the Scope tab's material list — a hint, not a gate. Nothing is dropped automatically.</div>
+                <div style={{fontSize:"0.56rem",color:"#8FA3BC",padding:"0.45rem 0.85rem 0.65rem",lineHeight:1.4,borderTop:"1px solid #F2F6FA"}}>Matched against the Scope tab's material list — a hint, not a gate. Nothing is dropped automatically.</div>
               </div>
             )}
 
             {/* Materials READ OFF a flattened drawing with OCR (sets with no extractable text) */}
             {results.ocrMaterials&&results.ocrMaterials.length>0&&(
-              <div>
-                <div style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"0.6rem"}}>🔎 Materials read off the drawing</div>
-                <div style={{border:"1px solid #DDE7F2",borderRadius:8,overflow:"hidden"}}>
+              <div style={{background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",overflow:"hidden"}}>
+                <div style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",padding:"0.7rem 0.85rem 0.45rem",borderBottom:"1px solid #EDF2F8"}}>Materials read off the drawing</div>
+                <div>
                   {results.ocrMaterials.map((m,i)=>(
-                    <div key={i} style={{display:"flex",alignItems:"center",gap:"0.5rem",padding:"0.42rem 0.6rem",background:i%2?"#F8FAFC":"#fff",borderTop:i?"1px solid #F1F5F9":"none"}}>
-                      <div style={{width:8,height:8,borderRadius:2,background:hashColor(m.text),flexShrink:0}}/>
-                      <span style={{fontSize:"0.64rem",color:"#334155",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={m.text}>{m.text}</span>
+                    <div key={i} style={{display:"flex",alignItems:"center",gap:"0.55rem",padding:"0.5rem 0.85rem",borderTop:i?"1px solid #F2F6FA":"none"}}>
+                      <div style={{width:9,height:9,borderRadius:3,background:hashColor(m.text),flexShrink:0,boxShadow:"0 0 0 2px #fff, 0 0 0 3px "+hashColor(m.text)+"33"}}/>
+                      <span style={{fontSize:"0.68rem",color:"#3D4E63",fontWeight:500,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={m.text}>{m.text}</span>
                     </div>
                   ))}
                 </div>
-                <div style={{fontSize:"0.56rem",color:"#94A3B8",marginTop:"0.35rem",lineHeight:1.4}}>This set has no digital text, so the AI read the material spec straight off the drawing image — tag your regions with these.</div>
+                <div style={{fontSize:"0.56rem",color:"#8FA3BC",padding:"0.45rem 0.85rem 0.65rem",lineHeight:1.4,borderTop:"1px solid #F2F6FA"}}>This set has no digital text, so the AI read the material spec straight off the drawing image — tag your regions with these.</div>
               </div>
             )}
 
