@@ -2195,7 +2195,11 @@ export default function BFSEstimator() {
   const showUploadScreen = !showResults;
 
   return (
-    <div style={{fontFamily:"'Inter',system-ui,-apple-system,sans-serif",background:"radial-gradient(1100px 520px at 15% -10%, rgba(74,134,200,0.16), transparent 60%), radial-gradient(900px 460px at 85% -8%, rgba(90,146,210,0.13), transparent 58%), radial-gradient(1500px 800px at 50% 118%, rgba(63,121,188,0.10), transparent 55%), #0C1B2E",minHeight:"100vh",display:"flex",flexDirection:"column",color:"#1E293B"}}>
+    <div style={{fontFamily:"'Inter',system-ui,-apple-system,sans-serif",
+      /* Blueprint Precision canvas: white with a barely-there vellum grid — the signature */
+      background:"linear-gradient(rgba(27,79,138,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(27,79,138,0.035) 1px, transparent 1px), linear-gradient(rgba(27,79,138,0.018) 1px, transparent 1px), linear-gradient(90deg, rgba(27,79,138,0.018) 1px, transparent 1px), #F7FAFC",
+      backgroundSize:"120px 120px, 120px 120px, 24px 24px, 24px 24px, auto",
+      minHeight:"100vh",display:"flex",flexDirection:"column",color:"#1E293B"}}>
 
       {/* ── Header — Blueprint Precision: white bar, hairline rule, sliding-underline nav ── */}
       <header style={{background:"#FFFFFF",height:72,padding:"0 2rem",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,borderBottom:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.05)",zIndex:10}}>
@@ -2343,9 +2347,12 @@ export default function BFSEstimator() {
 
       {appTab==="takeoff"&&(<>
 
-      {/* ══ UPLOAD SCREEN ══ */}
+      {/* ══ UPLOAD SCREEN — the "drafting table": a deep-navy instrument panel resting
+           on the light vellum canvas (inner text was designed for dark; contained here) ══ */}
       {showUploadScreen&&(
-        <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"2rem",position:"relative",overflow:"hidden"}}>
+        <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"2rem",position:"relative",overflow:"hidden",
+                     margin:"1.5rem 2rem 2rem",borderRadius:20,background:"radial-gradient(1100px 520px at 15% -10%, rgba(74,134,200,0.16), transparent 60%), radial-gradient(900px 460px at 85% -8%, rgba(90,146,210,0.13), transparent 58%), #0C1B2E",
+                     boxShadow:"0 2px 6px rgba(27,79,138,0.08), 0 24px 64px -24px rgba(12,27,46,0.45)",border:"1px solid #E3EAF3"}}>
           {/* Background grid */}
           <div style={{position:"absolute",inset:0,backgroundImage:`linear-gradient(rgba(74,134,200,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(74,134,200,0.05) 1px, transparent 1px)`,backgroundSize:"44px 44px",pointerEvents:"none",maskImage:"radial-gradient(ellipse 80% 60% at 50% 40%, #000 40%, transparent 100%)",WebkitMaskImage:"radial-gradient(ellipse 80% 60% at 50% 40%, #000 40%, transparent 100%)"}}/>
           {/* Soft blue aura */}
