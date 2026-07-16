@@ -4,9 +4,10 @@ import * as XLSX from "xlsx";
 import { Stage, Layer, Line, Circle, Image as KImage } from "react-konva";
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || "";
-const BLUE      = "#4A86C8";
-const BLUE_DARK = "#2C5F9A";
+const BLUE      = "#1B4F8A";   // Blueprint Precision: deep blue = structure & authority
+const BLUE_DARK = "#143C6B";
 const BLUE_PALE = "#EBF2FA";
+const TEAL      = "#2ABFBF";   // teal = VERIFIED/live only — earned, never decorative
 const NAVY      = "#0C1B2E";
 const NAVY_MID  = "#122035";
 const NAVY_LT   = "#1E3A5F";
@@ -2196,33 +2197,56 @@ export default function BFSEstimator() {
   return (
     <div style={{fontFamily:"'Inter',system-ui,-apple-system,sans-serif",background:"radial-gradient(1100px 520px at 15% -10%, rgba(74,134,200,0.16), transparent 60%), radial-gradient(900px 460px at 85% -8%, rgba(90,146,210,0.13), transparent 58%), radial-gradient(1500px 800px at 50% 118%, rgba(63,121,188,0.10), transparent 55%), #0C1B2E",minHeight:"100vh",display:"flex",flexDirection:"column",color:"#1E293B"}}>
 
-      {/* ── Header ── */}
-      <header style={{background:"linear-gradient(180deg,#0F2138,#0B1728)",height:96,padding:"0 2.4rem",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,boxShadow:"0 1px 0 rgba(255,255,255,0.06), 0 6px 28px -8px rgba(0,0,0,0.55)",zIndex:10}}>
-        <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:"1.25rem"}}>
-          <img src="/logo-bfs.png" alt="BFS" style={{height:66,width:"auto"}}/>
-          <div style={{width:1,height:54,background:"rgba(255,255,255,0.13)"}}/>
+      {/* ── Header — Blueprint Precision: white bar, hairline rule, sliding-underline nav ── */}
+      <header style={{background:"#FFFFFF",height:72,padding:"0 2rem",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,borderBottom:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.05)",zIndex:10}}>
+        <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:"1.1rem"}}>
+          <a href="https://bostonpanelsystems.com" target="_blank" rel="noreferrer" title="bostonpanelsystems.com" style={{display:"flex",alignItems:"center"}}>
+            <img src="/logo-bfs.png" alt="Boston Facade Systems" style={{height:46,width:"auto",cursor:"pointer"}}/>
+          </a>
+          <div style={{width:1,height:36,background:"#E3EAF3"}}/>
           <div>
-            <div style={{fontSize:"0.64rem",letterSpacing:"0.27em",color:"rgba(255,255,255,0.46)",textTransform:"uppercase",fontWeight:600,marginBottom:2}}>Boston Facade Systems</div>
-            <div style={{fontSize:"1.4rem",fontWeight:600,color:"#fff",letterSpacing:"-0.025em",fontFamily:"'Space Grotesk',sans-serif"}}>AI Estimator</div>
+            <div style={{fontSize:"0.58rem",letterSpacing:"0.24em",color:"#8DA3BC",textTransform:"uppercase",fontWeight:600}}>Boston Facade Systems</div>
+            <div style={{fontSize:"1.05rem",fontWeight:700,color:BLUE,letterSpacing:"-0.02em"}}>AI Estimator</div>
           </div>
         </div>
-        {/* Top-level nav tabs — front and center */}
-        <div style={{display:"flex",gap:"0.25rem",background:"rgba(255,255,255,0.07)",borderRadius:11,padding:"0.28rem",border:"1px solid rgba(255,255,255,0.09)",boxShadow:"inset 0 1px 4px rgba(0,0,0,0.35)"}}>
-          {[["takeoff","Takeoff"],["queue","Queue"],["manual","Draw"],["scope","Scope"],["budget","Budget"],["model","Model"]].map(([t,label])=>(
-            <button key={t} onClick={()=>setAppTab(t)} style={{padding:"0.5rem 1.15rem",borderRadius:8,border:"none",fontSize:"0.78rem",fontWeight:appTab===t?700:600,fontFamily:"inherit",cursor:"pointer",background:appTab===t?"linear-gradient(180deg,#5A92D2,#3F79BC)":"transparent",color:appTab===t?"#fff":"rgba(255,255,255,0.55)",boxShadow:appTab===t?"0 2px 12px rgba(74,134,200,0.5)":"none",letterSpacing:"-0.01em",transition:"all 0.15s"}}>{label}</button>
-          ))}
-        </div>
-        <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:"1rem"}}>
+        {/* Primary nav: 3 tabs, deep-blue sliding underline */}
+        <nav style={{display:"flex",gap:"0.4rem",height:"100%"}}>
+          {[["estimator","Estimator",["takeoff","queue","manual","model"]],["scope","Scope Reader",["scope"]],["budget","Suggested Pricing",["budget"]]].map(([key,label,members])=>{
+            const active=members.includes(appTab);
+            return (
+              <button key={key} onClick={()=>setAppTab(members[0])}
+                style={{position:"relative",padding:"0 1.25rem",border:"none",background:"transparent",cursor:"pointer",fontFamily:"inherit",
+                        fontSize:"0.85rem",fontWeight:active?700:500,color:active?BLUE:"#64748B",letterSpacing:"-0.01em",
+                        borderBottom:active?`3px solid ${BLUE}`:"3px solid transparent",transition:"color 0.18s ease-out, border-color 0.18s ease-out"}}>
+                {label}
+              </button>
+            );
+          })}
+        </nav>
+        <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:"0.9rem"}}>
           {appTab==="takeoff"&&showResults&&(
-            <div style={{display:"flex",gap:"0.5rem"}}>
-              <button onClick={exportExcel} style={{padding:"0.45rem 1rem",background:"transparent",color:"rgba(255,255,255,0.7)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↓ Excel</button>
-              <button onClick={exportPDF} disabled={pdfLoading} style={{padding:"0.45rem 1rem",background:"linear-gradient(180deg,#5A92D2,#3F79BC)",color:"#fff",border:"none",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↓ {pdfLoading?"Generating...":"Evidence PDF"}</button>
-              <button onClick={saveBid} style={{padding:"0.45rem 1rem",background:"transparent",color:"rgba(255,255,255,0.7)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>💾 Save</button>
-              <button onClick={()=>{setFile(null);setPhase("idle");setResults(null);setLog([]);setAssignments({});setHiddenIds({});setDeletedStack([]);setBucketShapes([]);}} style={{padding:"0.45rem 1rem",background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.6)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>↺ New</button>
+            <div style={{display:"flex",gap:"0.45rem"}}>
+              <button onClick={exportExcel} style={{padding:"0.45rem 0.95rem",background:"#fff",color:BLUE,border:`1px solid ${BLUE}40`,borderRadius:8,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer",transition:"all 0.18s ease-out"}}>↓ Excel</button>
+              <button onClick={exportPDF} disabled={pdfLoading} style={{padding:"0.45rem 0.95rem",background:BLUE,color:"#fff",border:"none",borderRadius:8,fontSize:"0.72rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer",boxShadow:"0 2px 8px rgba(27,79,138,0.25)",transition:"all 0.18s ease-out"}}>↓ {pdfLoading?"Generating...":"Evidence PDF"}</button>
+              <button onClick={saveBid} style={{padding:"0.45rem 0.95rem",background:"#fff",color:BLUE,border:`1px solid ${BLUE}40`,borderRadius:8,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer",transition:"all 0.18s ease-out"}}>💾 Save</button>
+              <button onClick={()=>{setFile(null);setPhase("idle");setResults(null);setLog([]);setAssignments({});setHiddenIds({});setDeletedStack([]);setBucketShapes([]);}} style={{padding:"0.45rem 0.95rem",background:"#F1F5F9",color:"#64748B",border:"1px solid #E2E8F0",borderRadius:8,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer",transition:"all 0.18s ease-out"}}>↺ New</button>
             </div>
           )}
         </div>
       </header>
+      {/* Estimator inner rail: Takeoff · Queue · Draw · Model (only inside Estimator) */}
+      {["takeoff","queue","manual","model"].includes(appTab)&&(
+        <div style={{background:"#FFFFFF",borderBottom:"1px solid #E3EAF3",padding:"0 2rem",display:"flex",gap:"0.3rem",flexShrink:0,zIndex:9}}>
+          {[["takeoff","Takeoff"],["queue","Queue"],["manual","Draw"],["model","Model"]].map(([t,label])=>(
+            <button key={t} onClick={()=>setAppTab(t)}
+              style={{padding:"0.55rem 1rem",border:"none",background:"transparent",cursor:"pointer",fontFamily:"inherit",
+                      fontSize:"0.74rem",fontWeight:appTab===t?700:500,color:appTab===t?BLUE:"#8DA3BC",
+                      borderBottom:appTab===t?`2px solid ${TEAL}`:"2px solid transparent",transition:"color 0.18s ease-out, border-color 0.18s ease-out"}}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {appTab==="scope"&&<ScopeView result={scopeResult} setResult={setScopeResult}/>}
       {appTab==="model"&&<ModelView/>}
