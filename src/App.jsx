@@ -1171,7 +1171,7 @@ ${text.slice(0,30000)}`;
           onDrop={e=>{e.preventDefault();setDragOver(false);handle(e.dataTransfer.files[0]);}}
           onDragOver={e=>{e.preventDefault();setDragOver(true);}}
           onDragLeave={()=>setDragOver(false)}
-          style={{border:`2px dashed ${dragOver?BLUE:scopeFile?"#22C55E":"#CBD5E1"}`,borderRadius:14,padding:"2rem",textAlign:"center",cursor:"pointer",background:dragOver?BLUE_PALE:scopeFile?"#F0FDF4":"#fff",transition:"all 0.2s"}}>
+          style={{border:`2px dashed ${dragOver?BLUE:scopeFile?TEAL:"#C3D2E4"}`,borderRadius:14,padding:"2rem",textAlign:"center",cursor:"pointer",background:dragOver?BLUE_PALE:scopeFile?"#F0FBFA":"#fff",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",transition:"all 0.2s"}}>
           <input ref={fileRef} type="file" accept=".pdf,.doc,.docx,.txt,.xlsx,.csv" style={{display:"none"}} onChange={e=>handle(e.target.files[0])}/>
           {!scopeFile?(<>
             <div style={{fontSize:"2.2rem",marginBottom:"0.4rem",opacity:0.5}}>📄</div>
@@ -1179,8 +1179,8 @@ ${text.slice(0,30000)}`;
             <div style={{fontSize:"0.75rem",color:"#94A3B8",marginTop:"0.25rem"}}>PDF, Word, Excel, or text · or click to browse</div>
           </>):(<>
             <div style={{fontSize:"2rem",marginBottom:"0.35rem"}}>✅</div>
-            <div style={{fontSize:"0.95rem",fontWeight:700,color:"#15803D",wordBreak:"break-all"}}>{scopeFile.name}</div>
-            <div style={{fontSize:"0.72rem",color:"#16A34A",marginTop:"0.2rem"}}>Loaded · {(scopeFile.size/1024).toFixed(0)} KB</div>
+            <div style={{fontSize:"0.95rem",fontWeight:700,color:"#0E7A73",wordBreak:"break-all"}}>{scopeFile.name}</div>
+            <div style={{fontSize:"0.72rem",color:"#14A8A0",marginTop:"0.2rem"}}>Loaded · {(scopeFile.size/1024).toFixed(0)} KB</div>
           </>)}
         </div>
         {busy&&<div style={{marginTop:"1.5rem",textAlign:"center",color:"#64748B",fontSize:"0.85rem"}}>📖 Reading the scope…</div>}
@@ -1194,10 +1194,10 @@ ${text.slice(0,30000)}`;
               ["❓","Questions for the meeting","Auto-prepped RFIs on anything doubtful, so you walk into the scope meeting ready"],
               ["📐","Quantities + in/exclusions","Required material quantities pulled out, plus proposal inclusions/exclusions"],
             ].map(([ic,t,d])=>(
-              <div key={t} style={{padding:"0.85rem 1rem",background:"#fff",borderRadius:10,border:"1px solid #EEF2F7"}}>
+              <div key={t} style={{padding:"0.85rem 1rem",background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)"}}>
                 <div style={{fontSize:"1.1rem",marginBottom:"0.3rem"}}>{ic}</div>
-                <div style={{fontSize:"0.78rem",fontWeight:700,color:"#0F172A"}}>{t}</div>
-                <div style={{fontSize:"0.68rem",color:"#94A3B8",marginTop:"0.15rem",lineHeight:1.4}}>{d}</div>
+                <div style={{fontSize:"0.78rem",fontWeight:700,color:BLUE_DARK}}>{t}</div>
+                <div style={{fontSize:"0.68rem",color:"#8FA3BC",marginTop:"0.15rem",lineHeight:1.4}}>{d}</div>
               </div>
             ))}
           </div>
@@ -1226,7 +1226,7 @@ ${text.slice(0,30000)}`;
               </div>
             )}
             <div style={{fontSize:"0.6rem",letterSpacing:"0.1em",color:BLUE,textTransform:"uppercase",fontWeight:700}}>Scope checklist — review each Yes / No / Ask</div>
-            <div style={{background:"#fff",borderRadius:10,border:"1px solid #EEF2F7",overflow:"hidden"}}>
+            <div style={{background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",overflow:"hidden"}}>
               {items.map((it,idx)=>{
                 const showH = idx===0||items[idx-1].section!==it.section;
                 return <div key={idx}>
@@ -2258,14 +2258,14 @@ export default function BFSEstimator() {
       {appTab==="budget"&&(
         <div style={{flex:1,overflowY:"auto",padding:"2rem"}}>
           <div style={{maxWidth:840,margin:"0 auto"}}>
-            <div style={{fontSize:"0.7rem",letterSpacing:"0.18em",color:BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"0.3rem"}}>Budget</div>
-            <h2 style={{fontSize:"1.5rem",fontWeight:800,color:"#0F172A",margin:"0 0 0.3rem",letterSpacing:"-0.02em"}}>Price the bid — no Excel needed</h2>
-            <p style={{fontSize:"0.82rem",color:"#9FB3CC",margin:"0 0 1.5rem",lineHeight:1.6}}>Your takeoff SF × the rates you set for <i>this</i> job (you don't always charge the same). Edit a rate and the total updates live. Export writes your BFS estimate sheet automatically.</p>
+            <div style={{fontSize:"0.7rem",letterSpacing:"0.18em",color:BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"0.3rem"}}>Suggested Pricing</div>
+            <h2 style={{fontSize:"1.5rem",fontWeight:800,color:BLUE_DARK,margin:"0 0 0.3rem",letterSpacing:"-0.02em"}}>Price the bid — no Excel needed</h2>
+            <p style={{fontSize:"0.82rem",color:"#4A6076",margin:"0 0 1.5rem",lineHeight:1.6}}>Your takeoff SF × the rates you set for <i>this</i> job (you don't always charge the same). Edit a rate and the total updates live. Export writes your BFS estimate sheet automatically.</p>
             {(!results||!priceRows.length)?(
-              <div style={{padding:"2.5rem",textAlign:"center",color:"#94A3B8",background:"#fff",borderRadius:12,border:"1px solid #EEF2F7",fontSize:"0.85rem"}}>Run a takeoff and tag your materials first — then set your prices here.</div>
+              <div style={{padding:"2.5rem",textAlign:"center",color:"#5B7290",background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",fontSize:"0.85rem"}}>Run a takeoff and tag your materials first — then set your prices here.</div>
             ):(<>
-              <div style={{display:"flex",gap:"0.4rem",alignItems:"center",flexWrap:"wrap",marginBottom:"1rem",padding:"0.6rem 0.8rem",background:"#fff",borderRadius:10,border:"1px solid #EEF2F7"}}>
-                <span style={{fontSize:"0.64rem",color:"#64748B",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em"}}>Rate cards</span>
+              <div style={{display:"flex",gap:"0.4rem",alignItems:"center",flexWrap:"wrap",marginBottom:"1rem",padding:"0.6rem 0.8rem",background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)"}}>
+                <span style={{fontSize:"0.64rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em"}}>Rate cards</span>
                 {Object.keys(rateCards).length===0&&<span style={{fontSize:"0.66rem",color:"#94A3B8"}}>none yet — set your rates below and save</span>}
                 {Object.keys(rateCards).map(nm=>(
                   <span key={nm} style={{display:"inline-flex",alignItems:"center",gap:"0.35rem",padding:"0.25rem 0.55rem",borderRadius:16,fontSize:"0.66rem",fontWeight:600,background:rateCardName===nm?BLUE:"#F1F5F9",color:rateCardName===nm?"#fff":"#475569",border:"1px solid "+(rateCardName===nm?BLUE:"#E2E8F0")}}>
@@ -2275,10 +2275,10 @@ export default function BFSEstimator() {
                 ))}
                 <div style={{flex:1,minWidth:8}}/>
                 <input value={rateCardName} onChange={e=>setRateCardName(e.target.value)} placeholder="name (e.g. Windover)" style={{width:132,padding:"0.28rem 0.5rem",borderRadius:5,border:"1px solid #CBD5E1",fontSize:"0.68rem",fontFamily:"inherit"}}/>
-                <button onClick={saveRateCard} style={{padding:"0.3rem 0.7rem",borderRadius:6,border:"none",background:"linear-gradient(180deg,#5A92D2,#3F79BC)",color:"#fff",fontSize:"0.68rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>💾 Save rates</button>
+                <button onClick={saveRateCard} style={{padding:"0.3rem 0.7rem",borderRadius:6,border:"none",background:BLUE,color:"#fff",fontSize:"0.68rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer",boxShadow:"0 2px 6px rgba(27,79,138,0.25)"}}>💾 Save rates</button>
               </div>
-              <div style={{background:"#fff",borderRadius:12,border:"1px solid #EEF2F7",overflow:"hidden",marginBottom:"1rem"}}>
-                <div style={{display:"grid",gridTemplateColumns:"1.7fr 0.9fr 0.9fr 1fr 1fr",padding:"0.6rem 1rem",background:"#F8FAFC",fontSize:"0.58rem",fontWeight:700,color:"#64748B",textTransform:"uppercase",letterSpacing:"0.06em"}}>
+              <div style={{background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",overflow:"hidden",marginBottom:"1rem"}}>
+                <div style={{display:"grid",gridTemplateColumns:"1.7fr 0.9fr 0.9fr 1fr 1fr",padding:"0.6rem 1rem",background:"#F4F8FC",fontSize:"0.58rem",fontWeight:700,color:BLUE,textTransform:"uppercase",letterSpacing:"0.08em"}}>
                   <div>Material</div><div style={{textAlign:"right"}}>Net SF</div><div style={{textAlign:"right"}}>+Waste</div><div style={{textAlign:"right"}}>Rate $/SF</div><div style={{textAlign:"right"}}>Cost</div>
                 </div>
                 {priceRows.map(r=>(
@@ -2287,12 +2287,12 @@ export default function BFSEstimator() {
                     <div style={{textAlign:"right"}}><input type="number" value={Math.round(r.net)} onChange={e=>setSf(r.cat,parseFloat(e.target.value)||0)} style={{width:64,textAlign:"right",padding:"0.22rem 0.35rem",borderRadius:5,border:"1px solid #E2E8F0",fontSize:"0.74rem",fontFamily:"inherit",color:"#334155"}}/></div>
                     <div style={{textAlign:"right",whiteSpace:"nowrap"}}><input type="number" value={r.wastePct} onChange={e=>setWasteMat(r.cat,parseFloat(e.target.value)||0)} title="waste % for this material" style={{width:36,textAlign:"right",padding:"0.22rem 0.25rem",borderRadius:5,border:"1px solid #E2E8F0",fontSize:"0.7rem",fontFamily:"inherit",color:"#64748B"}}/><span style={{fontSize:"0.6rem",color:"#94A3B8"}}>% → </span><span style={{color:"#94A3B8"}}>{Math.round(r.adjSF).toLocaleString()}</span></div>
                     <div style={{textAlign:"right",whiteSpace:"nowrap"}}><span style={{color:"#94A3B8"}}>$</span><input type="number" value={r.rate} onChange={e=>setRate(r.cat,parseFloat(e.target.value)||0)} style={{width:60,textAlign:"right",padding:"0.22rem 0.35rem",borderRadius:5,border:"1px solid #CBD5E1",fontSize:"0.74rem",fontFamily:"inherit"}}/></div>
-                    <div style={{textAlign:"right",fontWeight:700,color:"#0F172A"}}>${Math.round(r.cost).toLocaleString()}</div>
+                    <div style={{textAlign:"right",fontWeight:700,color:"#122A45",fontVariantNumeric:"tabular-nums"}}>${Math.round(r.cost).toLocaleString()}</div>
                   </div>
                 ))}
               </div>
-              {lfRows.length>0&&<div style={{background:"#fff",borderRadius:12,border:"1px solid #EEF2F7",overflow:"hidden",marginBottom:"1rem"}}>
-                <div style={{display:"grid",gridTemplateColumns:"1.7fr 0.9fr 0.9fr 1fr 1fr",padding:"0.6rem 1rem",background:"#F8FAFC",fontSize:"0.58rem",fontWeight:700,color:"#64748B",textTransform:"uppercase",letterSpacing:"0.06em"}}>
+              {lfRows.length>0&&<div style={{background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",overflow:"hidden",marginBottom:"1rem"}}>
+                <div style={{display:"grid",gridTemplateColumns:"1.7fr 0.9fr 0.9fr 1fr 1fr",padding:"0.6rem 1rem",background:"#F4F8FC",fontSize:"0.58rem",fontWeight:700,color:BLUE,textTransform:"uppercase",letterSpacing:"0.08em"}}>
                   <div>Trim / Linear</div><div style={{textAlign:"right"}}>LF</div><div/><div style={{textAlign:"right"}}>Rate $/LF</div><div style={{textAlign:"right"}}>Cost</div>
                 </div>
                 {lfRows.map(r=>(
@@ -2301,12 +2301,12 @@ export default function BFSEstimator() {
                     <div style={{textAlign:"right",color:"#64748B"}}>{Math.round(r.lf).toLocaleString()}</div>
                     <div/>
                     <div style={{textAlign:"right",whiteSpace:"nowrap"}}><span style={{color:"#94A3B8"}}>$</span><input type="number" value={r.rate} onChange={e=>setLfRate(r.material,parseFloat(e.target.value)||0)} style={{width:60,textAlign:"right",padding:"0.22rem 0.35rem",borderRadius:5,border:"1px solid #CBD5E1",fontSize:"0.74rem",fontFamily:"inherit"}}/></div>
-                    <div style={{textAlign:"right",fontWeight:700,color:"#0F172A"}}>${Math.round(r.cost).toLocaleString()}</div>
+                    <div style={{textAlign:"right",fontWeight:700,color:"#122A45",fontVariantNumeric:"tabular-nums"}}>${Math.round(r.cost).toLocaleString()}</div>
                   </div>
                 ))}
               </div>}
-              <div style={{background:"#fff",borderRadius:12,border:"1px solid #EEF2F7",overflow:"hidden",marginBottom:"1rem"}}>
-                <div style={{display:"grid",gridTemplateColumns:"1.7fr 0.9fr 0.9fr 1fr 1fr",padding:"0.6rem 1rem",background:"#F8FAFC",fontSize:"0.58rem",fontWeight:700,color:"#64748B",textTransform:"uppercase",letterSpacing:"0.06em"}}>
+              <div style={{background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",overflow:"hidden",marginBottom:"1rem"}}>
+                <div style={{display:"grid",gridTemplateColumns:"1.7fr 0.9fr 0.9fr 1fr 1fr",padding:"0.6rem 1rem",background:"#F4F8FC",fontSize:"0.58rem",fontWeight:700,color:BLUE,textTransform:"uppercase",letterSpacing:"0.08em"}}>
                   <div>Custom / adders</div><div style={{textAlign:"right"}}>Qty</div><div/><div style={{textAlign:"right"}}>$ / unit</div><div style={{textAlign:"right"}}>Cost</div>
                 </div>
                 {customLines.map(l=>(
@@ -2322,8 +2322,8 @@ export default function BFSEstimator() {
               </div>
               <div style={{display:"flex",gap:"0.75rem",marginBottom:"1rem"}}>
                 {[["Waste %","wastePct"],["Margin %","marginPct"]].map(([lab,key])=>(
-                  <div key={key} style={{flex:1,background:"#fff",borderRadius:10,border:"1px solid #EEF2F7",padding:"0.6rem 0.85rem",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                    <span style={{fontSize:"0.72rem",color:"#64748B",fontWeight:600}}>{lab}</span>
+                  <div key={key} style={{flex:1,background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",padding:"0.6rem 0.85rem",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                    <span style={{fontSize:"0.72rem",color:"#3D4E63",fontWeight:600}}>{lab}</span>
                     <input type="number" value={pricing[key]} onChange={e=>setPricing(p=>({...p,[key]:parseFloat(e.target.value)||0}))} style={{width:56,textAlign:"right",padding:"0.25rem 0.4rem",borderRadius:5,border:"1px solid #CBD5E1",fontSize:"0.78rem",fontFamily:"inherit"}}/>
                   </div>
                 ))}
@@ -2333,10 +2333,10 @@ export default function BFSEstimator() {
                   <div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:"0.76rem",color:"rgba(255,255,255,0.7)",marginBottom:"0.35rem"}}><span>{l}</span><span>${Math.round(v).toLocaleString()}</span></div>
                 ))}
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",borderTop:"1px solid rgba(255,255,255,0.12)",paddingTop:"0.6rem",marginTop:"0.4rem"}}>
-                  <span style={{fontSize:"0.7rem",fontWeight:700,color:"#4ADE80",letterSpacing:"0.08em"}}>BID TOTAL</span>
-                  <span style={{fontSize:"1.7rem",fontWeight:800,color:"#4ADE80"}}>${Math.round(budgetTotal).toLocaleString()}</span>
+                  <span style={{fontSize:"0.7rem",fontWeight:700,color:TEAL,letterSpacing:"0.08em"}}>BID TOTAL</span>
+                  <span style={{fontSize:"1.7rem",fontWeight:800,color:TEAL,fontVariantNumeric:"tabular-nums"}}>${Math.round(budgetTotal).toLocaleString()}</span>
                 </div>
-                <button onClick={exportBudgetExcel} style={{width:"100%",marginTop:"0.9rem",padding:"0.7rem",background:"linear-gradient(180deg,#5A92D2,#3F79BC)",color:"#fff",border:"none",borderRadius:8,fontSize:"0.78rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>↓ Export / update the Excel</button>
+                <button onClick={exportBudgetExcel} style={{width:"100%",marginTop:"0.9rem",padding:"0.7rem",background:TEAL,color:"#06283D",border:"none",borderRadius:8,fontSize:"0.78rem",fontWeight:800,fontFamily:"inherit",cursor:"pointer",boxShadow:"0 2px 8px rgba(42,191,191,0.35)"}}>↓ Export / update the Excel</button>
               </div>
             </>)}
           </div>
