@@ -1388,6 +1388,22 @@ function ModelView() {
         <h2 style={{fontSize:"1.6rem",fontWeight:800,color:"#0F172A",margin:"0 0 0.4rem",letterSpacing:"-0.02em"}}>Trained on Boston Facade Systems' own work</h2>
         <p style={{fontSize:"0.85rem",color:"#9FB3CC",lineHeight:1.6,margin:"0 0 1.75rem",maxWidth:660}}>This isn't generic AI. It learns to highlight materials and trace shapes the way <i>your</i> estimators do — from every takeoff your team has ever marked up. The more bids you run, the sharper it gets. No competitor can copy this — it's your data.</p>
         <CompareLab/>
+        {/* THE DIAL: corpus money-right over time — proof the system compounds */}
+        {(()=>{const H=[[1,312],[3,322],[4,393],[5,457]];const W2=4230;const mx=Math.max(...H.map(h=>h[1]));return (
+          <div style={{background:"#fff",borderRadius:12,border:"1px solid #EEF2F7",padding:"1.1rem 1.25rem",marginBottom:"1.5rem"}}>
+            <div style={{fontSize:"0.6rem",letterSpacing:"0.1em",color:BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"0.5rem"}}>📈 The dial — walls money-right across ALL {W2.toLocaleString()} walls in your job history</div>
+            <div style={{display:"flex",alignItems:"flex-end",gap:"0.6rem",height:90}}>
+              {H.map(([r,m])=>(
+                <div key={r} style={{flex:1,textAlign:"center"}}>
+                  <div style={{fontSize:"0.66rem",fontWeight:800,color:BLUE}}>{m}</div>
+                  <div style={{height:Math.max(8,64*m/mx),background:"linear-gradient(180deg,#5A92D2,#3F79BC)",borderRadius:"5px 5px 0 0",marginTop:2}}/>
+                  <div style={{fontSize:"0.56rem",color:"#94A3B8",marginTop:2}}>run {r}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{fontSize:"0.6rem",color:"#94A3B8",marginTop:"0.5rem"}}>Blank drawings in → graded wall-by-wall against your estimators' own takeoffs (±15% SF). +42% in the last two days of engine work.</div>
+          </div>
+        );})()}
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"0.75rem",marginBottom:"1.75rem"}}>
           {[["657","marked takeoffs"],["16,368","labeled regions"],["2024–26","3 years"],["12","material types"]].map(([n,l])=>(
             <div key={l} style={{padding:"1rem",background:"#fff",borderRadius:12,border:"1px solid #EEF2F7",textAlign:"center"}}>
