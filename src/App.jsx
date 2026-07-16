@@ -1082,6 +1082,22 @@ const STATUS_STYLE = {
   attention: { bg:"#FEE2E2", fg:"#B91C1C", label:"⚠ Check" },
 };
 
+/* Animated numeral — eases toward the live value so SF totals count up like a meter.
+   Display-only: the underlying value is always the exact number. */
+function CountUp({ value, dur=650, style }) {
+  const [v, setV] = useState(value);
+  const prev = useRef(value);
+  useEffect(() => {
+    const from = prev.current, to = value; prev.current = value;
+    if (from === to) return;
+    let raf; const t0 = performance.now();
+    const step = t => { const p = Math.min(1, (t - t0) / dur); const e = 1 - Math.pow(1 - p, 3); setV(from + (to - from) * e); if (p < 1) raf = requestAnimationFrame(step); };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+  return <span style={style}>{Math.round(v).toLocaleString()}</span>;
+}
+
 function ScopeSection({ title, tone, children }) {
   return <div style={{background:"#fff",borderRadius:10,border:"1px solid "+(tone==="amber"?"#FDE68A":"#EEF2F7"),padding:"0.9rem 1.1rem"}}>
     <div style={{fontSize:"0.6rem",letterSpacing:"0.1em",color:tone==="amber"?"#B45309":BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"0.6rem"}}>{title}</div>
@@ -1922,7 +1938,6 @@ export default function BFSEstimator() {
       div[style*="border-radius: 12px"], div[style*="border-radius: 10px"] { transition: transform .18s cubic-bezier(.2,.8,.2,1), box-shadow .22s ease; }
       div[style*="border-radius: 12px"]:hover, div[style*="border-radius: 10px"]:hover { transform: translateY(-2px) scale(1.012); box-shadow: 0 10px 30px -12px rgba(15,33,56,.28); }
       /* titles zoom gently when you sweep over them; page titles read light on the navy backdrop */
-      h1, h2 { color: #F1F5F9 !important; }
       h1, h2, h3 { transition: transform .2s cubic-bezier(.2,.8,.2,1); transform-origin: left center; }
       h1:hover, h2:hover, h3:hover { transform: scale(1.022); }
       @media (prefers-reduced-motion: reduce) { *, ::after { animation: none !important; transition: none !important; } }
@@ -2334,7 +2349,7 @@ export default function BFSEstimator() {
                 ))}
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",borderTop:"1px solid rgba(255,255,255,0.12)",paddingTop:"0.6rem",marginTop:"0.4rem"}}>
                   <span style={{fontSize:"0.7rem",fontWeight:700,color:TEAL,letterSpacing:"0.08em"}}>BID TOTAL</span>
-                  <span style={{fontSize:"1.7rem",fontWeight:800,color:TEAL,fontVariantNumeric:"tabular-nums"}}>${Math.round(budgetTotal).toLocaleString()}</span>
+                  <span style={{fontSize:"1.7rem",fontWeight:800,color:TEAL,fontVariantNumeric:"tabular-nums"}}>$<CountUp value={budgetTotal}/></span>
                 </div>
                 <button onClick={exportBudgetExcel} style={{width:"100%",marginTop:"0.9rem",padding:"0.7rem",background:TEAL,color:"#06283D",border:"none",borderRadius:8,fontSize:"0.78rem",fontWeight:800,fontFamily:"inherit",cursor:"pointer",boxShadow:"0 2px 8px rgba(42,191,191,0.35)"}}>↓ Export / update the Excel</button>
               </div>
@@ -2536,19 +2551,19 @@ export default function BFSEstimator() {
             {/* THE LEDGER — Blueprint Precision: numbers are the heroes (tabular numerals,
                 drafting-rule dividers, teal-signaled verified total) */}
             {summaryData&&Object.keys(summaryData).length>0&&(
-              <div style={{background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",overflow:"hidden"}}>
+              <div style={{background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",overflow:"hidden",animation:"bfsFadeUp .45s ease-out both"}}>
                 <div style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",padding:"0.7rem 0.85rem 0.45rem",borderBottom:"1px solid #EDF2F8"}}>Materials — net SF</div>
                 <div>
                   {Object.entries(summaryData).map(([cat,{adj,color}],i)=>(
-                    <div key={cat} style={{display:"flex",alignItems:"center",gap:"0.55rem",padding:"0.55rem 0.85rem",borderTop:i?"1px solid #F2F6FA":"none",transition:"background 0.18s ease-out"}}>
+                    <div key={cat} style={{display:"flex",alignItems:"center",gap:"0.55rem",padding:"0.55rem 0.85rem",borderTop:i?"1px solid #F2F6FA":"none",animation:"bfsFadeUp .4s ease-out both",animationDelay:(i*0.05)+"s"}}>
                       <span style={{width:9,height:9,borderRadius:3,background:color,flexShrink:0,boxShadow:"0 0 0 2px #fff, 0 0 0 3px "+color+"33"}}/>
                       <span style={{fontSize:"0.7rem",color:"#3D4E63",fontWeight:500,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cat}</span>
-                      <span style={{fontSize:"0.92rem",fontWeight:700,color:"#122A45",fontVariantNumeric:"tabular-nums",letterSpacing:"-0.01em"}}>{Math.round(adj).toLocaleString()}</span>
+                      <CountUp value={adj} style={{fontSize:"0.92rem",fontWeight:700,color:"#122A45",fontVariantNumeric:"tabular-nums",letterSpacing:"-0.01em"}}/>
                     </div>
                   ))}
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0.7rem 0.85rem",background:BLUE,marginTop:"0.1rem"}}>
                     <span style={{fontSize:"0.62rem",color:"rgba(255,255,255,0.75)",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em"}}>Job total</span>
-                    <span style={{fontSize:"1.25rem",fontWeight:800,color:"#fff",fontVariantNumeric:"tabular-nums",letterSpacing:"-0.02em"}}>{Math.round(grandAdj).toLocaleString()}<span style={{fontSize:"0.65rem",fontWeight:600,color:TEAL,marginLeft:5}}>SF</span></span>
+                    <span style={{fontSize:"1.25rem",fontWeight:800,color:"#fff",fontVariantNumeric:"tabular-nums",letterSpacing:"-0.02em"}}><CountUp value={grandAdj}/><span style={{fontSize:"0.65rem",fontWeight:600,color:TEAL,marginLeft:5}}>SF</span></span>
                   </div>
                 </div>
               </div>
@@ -2556,7 +2571,7 @@ export default function BFSEstimator() {
 
             {/* SCOPE CHECK — the Scope tab's conclusions pre-check the detected materials */}
             {scopeCheck&&(
-              <div style={{background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",overflow:"hidden"}}>
+              <div style={{background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",overflow:"hidden",animation:"bfsFadeUp .45s ease-out both",animationDelay:".12s"}}>
                 <div style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",padding:"0.7rem 0.85rem 0.45rem",borderBottom:"1px solid #EDF2F8"}}>Scope check</div>
                 <div>
                   {scopeCheck.rows.map((r,i)=>{
@@ -2584,7 +2599,7 @@ export default function BFSEstimator() {
 
             {/* Materials READ OFF a flattened drawing with OCR (sets with no extractable text) */}
             {results.ocrMaterials&&results.ocrMaterials.length>0&&(
-              <div style={{background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",overflow:"hidden"}}>
+              <div style={{background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",overflow:"hidden",animation:"bfsFadeUp .45s ease-out both",animationDelay:".2s"}}>
                 <div style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",padding:"0.7rem 0.85rem 0.45rem",borderBottom:"1px solid #EDF2F8"}}>Materials read off the drawing</div>
                 <div>
                   {results.ocrMaterials.map((m,i)=>(
