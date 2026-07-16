@@ -2533,20 +2533,22 @@ export default function BFSEstimator() {
               </div>
             )}
 
-            {/* Summary stats */}
+            {/* THE LEDGER — Blueprint Precision: numbers are the heroes (tabular numerals,
+                drafting-rule dividers, teal-signaled verified total) */}
             {summaryData&&Object.keys(summaryData).length>0&&(
-              <div>
-                <div style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"0.65rem"}}>Materials</div>
-                <div style={{display:"flex",flexDirection:"column",gap:"0.4rem"}}>
-                  {Object.entries(summaryData).map(([cat,{adj,color}])=>(
-                    <div key={cat} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0.45rem 0.6rem",borderRadius:6,background:"#F8FAFC",borderLeft:"3px solid "+color}}>
-                      <span style={{fontSize:"0.68rem",color:"#475569",fontWeight:500}}>{cat}</span>
-                      <span style={{fontSize:"0.75rem",fontWeight:700,color:"#0F172A"}}>{Math.round(adj).toLocaleString()}</span>
+              <div style={{background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",overflow:"hidden"}}>
+                <div style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",padding:"0.7rem 0.85rem 0.45rem",borderBottom:"1px solid #EDF2F8"}}>Materials — net SF</div>
+                <div>
+                  {Object.entries(summaryData).map(([cat,{adj,color}],i)=>(
+                    <div key={cat} style={{display:"flex",alignItems:"center",gap:"0.55rem",padding:"0.55rem 0.85rem",borderTop:i?"1px solid #F2F6FA":"none",transition:"background 0.18s ease-out"}}>
+                      <span style={{width:9,height:9,borderRadius:3,background:color,flexShrink:0,boxShadow:"0 0 0 2px #fff, 0 0 0 3px "+color+"33"}}/>
+                      <span style={{fontSize:"0.7rem",color:"#3D4E63",fontWeight:500,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cat}</span>
+                      <span style={{fontSize:"0.92rem",fontWeight:700,color:"#122A45",fontVariantNumeric:"tabular-nums",letterSpacing:"-0.01em"}}>{Math.round(adj).toLocaleString()}</span>
                     </div>
                   ))}
-                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0.5rem 0.6rem",borderRadius:6,background:BLUE_PALE,borderLeft:"3px solid "+BLUE,marginTop:"0.25rem"}}>
-                    <span style={{fontSize:"0.68rem",color:BLUE_DARK,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em"}}>Total</span>
-                    <span style={{fontSize:"0.85rem",fontWeight:800,color:BLUE}}>{Math.round(grandAdj).toLocaleString()} SF</span>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0.7rem 0.85rem",background:BLUE,marginTop:"0.1rem"}}>
+                    <span style={{fontSize:"0.62rem",color:"rgba(255,255,255,0.75)",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em"}}>Job total</span>
+                    <span style={{fontSize:"1.25rem",fontWeight:800,color:"#fff",fontVariantNumeric:"tabular-nums",letterSpacing:"-0.02em"}}>{Math.round(grandAdj).toLocaleString()}<span style={{fontSize:"0.65rem",fontWeight:600,color:TEAL,marginLeft:5}}>SF</span></span>
                   </div>
                 </div>
               </div>
