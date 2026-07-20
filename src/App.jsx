@@ -18,6 +18,54 @@ const withKey = (url) => {
         return url + (url.includes("?") ? "&" : "?") + "key=" + encodeURIComponent(k); }
   catch { return url; }
 };
+/* PRICE ENGINE (module scope, pure) — 42 line-level winning bids (won_lines.py),
+   market medians + height effect from won_vs_rest.py (877 lines / 190 bids). */
+const WON_LINES=[
+          {f:"soffit",g:"New England",q:6729,r:35},{f:"soffit",g:"New England",q:3738,r:40},
+          {f:"fiber cement",g:"Callahan",q:168,r:40},{f:"lap",g:"Callahan",q:443,r:35},{f:"fiber cement",g:"Callahan",q:75,r:11.64},
+          {f:"acm",g:"Dellbrook",q:8693,r:40},{f:"insulation",g:"Dellbrook",q:8693,r:8.5},
+          {f:"fiber cement",g:"Dellbrook",q:11496,r:24.5},{f:"insulation",g:"Dellbrook",q:11496,r:8.5},
+          {f:"nichiha",g:"Dellbrook",q:2788,r:38.5},{f:"insulation",g:"Dellbrook",q:2788,r:8.5},
+          {f:"nichiha",g:"Dellbrook",q:234,r:38.5},{f:"insulation",g:"Dellbrook",q:234,r:8.5},
+          {f:"fiber cement",g:"Dellbrook",q:4870,r:28},
+          {f:"acm",g:"Nauset",q:21743,r:37.5},{f:"insulation",g:"Nauset",q:21743,r:8.5},
+          {f:"acm",g:"Nauset",q:949,r:37.5},{f:"insulation",g:"Nauset",q:949,r:8.5},
+          {f:"acm",g:"Nauset",q:877,r:37.5},{f:"insulation",g:"Nauset",q:877,r:8.5},
+          {f:"trespa",g:"Nauset",q:147,r:40},{f:"insulation",g:"Nauset",q:147,r:8.5},
+          {f:"acm",g:"Nauset",q:431,r:37.5},{f:"trespa",g:"Nauset",q:1669,r:40},
+          {f:"acm",g:"Nauset",q:85,r:37.5},{f:"trespa",g:"Nauset",q:44,r:40},
+          {f:"acm",g:"Nauset",q:430,r:37.5},{f:"acm",g:"Nauset",q:5381,r:37.5},
+          {f:"fiber cement",g:"Callahan",q:4812,r:25},{f:"insulation",g:"Callahan",q:4812,r:8},
+          {f:"fiber cement",g:"Callahan",q:24999,r:25},{f:"insulation",g:"Callahan",q:24999,r:5},
+          {f:"fiber cement",g:"Callahan",q:2282,r:23},{f:"insulation",g:"Callahan",q:2282,r:8},
+          {f:"fiber cement",g:"Callahan",q:3657,r:23},{f:"insulation",g:"Callahan",q:3657,r:8},
+          {f:"fiber cement",g:"Callahan",q:9149,r:28},
+          {f:"acm",g:"GenServ",q:70,r:45},{f:"acm",g:"GenServ",q:147,r:30},
+          {f:"acm",g:"GenServ",q:40,r:25},{f:"acm",g:"GenServ",q:15,r:45},{f:"acm",g:"GenServ",q:133,r:55},
+        ];
+const FAM_KEYS={"acm":["acm","aluminum comp","alucobond","alpolic","reynobond"],"fiber cement":["fiber cement","hardie","fcp","fcl","fsh","fsv","board & batten","clapboard"],"nichiha":["nichiha","wood composite"],"trespa":["trespa","longboard"],"soffit":["soffit"],"lap":["lap","siding","shingle","cedar"],"insulation":["insulation","mineral wool"],"aluminum panel":["metal panel","metl","aluminum panel","alum wall"],"perforated":["perforated","perf "],"returns":["return"]};
+const famOfCat=cat=>{const c=(cat||"").toLowerCase();for(const f in FAM_KEYS){if(FAM_KEYS[f].some(k=>c.includes(k)))return f;}return null;};
+const REST_MED={"acm":45,"fiber cement":28,"nichiha":38,"trespa":42,"soffit":30,"insulation":8.5,"aluminum panel":41,"lap":32};
+const HEIGHT_ADJ=(f,h)=>{if(!h)return 0;if(f==="fiber cement"&&h>=55)return 2;if(f==="acm"&&h>=35)return 4.5;return 0;};
+const suggestRateCore=(cat,sf,gcCompany,heightFt)=>{
+  const f=famOfCat(cat);if(!f)return null;
+  const gcNow=(gcCompany||"").toLowerCase();
+  let cands=WON_LINES.filter(l=>l.f===f);
+  if(!cands.length&&(f==="aluminum panel"||f==="perforated"||f==="returns"))cands=WON_LINES.filter(l=>l.f==="acm");
+  if(!cands.length)return null;
+  const wl=cands.map(l=>{let w=1;
+    if(gcNow&&gcNow.includes(l.g.toLowerCase().split(" ")[0]))w*=3;
+    if(sf>0&&l.q>=sf*0.5&&l.q<=sf*2)w*=2;
+    return {r:l.r,w};});
+  wl.sort((x,y)=>x.r-y.r);
+  const tot=wl.reduce((s2,x)=>s2+x.w,0);
+  const pick=p=>{let acc=0;for(const x of wl){acc+=x.w;if(acc>=p*tot)return x.r;}return wl[wl.length-1].r;};
+  const gcHit=!!(gcNow&&cands.some(l=>gcNow.includes(l.g.toLowerCase().split(" ")[0])));
+  const hAdj=HEIGHT_ADJ(f,heightFt||0);
+  const rnd=v=>Math.round(v*2)/2;
+  return {lo:rnd(pick(0.25)+hAdj),med:rnd(pick(0.5)+hAdj),hi:rnd(pick(0.75)+hAdj),
+          n:cands.length,gcHit,fam:f,hAdj,market:REST_MED[f]||null};
+};
 {
   const _origFetch = window.fetch.bind(window);
   window.fetch = (input, init = {}) => {
@@ -2283,9 +2331,13 @@ export default function BFSEstimator() {
       (perPageByCat[k]=perPageByCat[k]||{})[pg]=(perPageByCat[k][pg]||0)+(z.netArea||0);
     }));
     Object.entries(bucketByMat||{}).forEach(([k,sf])=>{if(sf>0){(perPageByCat[k]=perPageByCat[k]||{})[0]=(perPageByCat[k][0]||0)+sf;}});
-    const materials=priceRows.map((r,i)=>({code:"M"+(i+1),desc:r.cat,per_page:perPageByCat[r.cat]||{1:Math.round(r.net)},rate:r.rate,unit:"sf"}));
+    const materials=priceRows.map((r,i)=>{
+      const sug=suggestRateCore(r.cat,r.adjSF,bidGc.company,parseFloat(bidGc.height)||0);
+      return {code:"M"+(i+1),desc:r.cat,per_page:perPageByCat[r.cat]||{1:Math.round(r.net)},rate:r.rate,unit:"sf",
+              suggest:sug?{lo:sug.lo,med:sug.med,hi:sug.hi}:undefined};
+    });
     const payload={date:new Date().toLocaleDateString("en-US"),job_name:results.projName||"",
-      job_number:bidGc.job_number||"",estimator:bidGc.estimator||"",
+      job_number:bidGc.job_number||"",estimator:bidGc.estimator||"",height:bidGc.height||"",
       gc:{contact:bidGc.contact,company:bidGc.company,city:bidGc.city,email:bidGc.email,phone:bidGc.phone},
       materials};
     try{
@@ -2382,63 +2434,7 @@ export default function BFSEstimator() {
       {appTab==="scope"&&<ScopeView result={scopeResult} setResult={setScopeResult}/>}
       {appTab==="model"&&<ModelView/>}
       {appTab==="budget"&&(()=>{
-        /* PRICE ENGINE v2 — LINE-LEVEL winning bids (42 priced lines from the owner's
-           won list, extracted from the submitted Excels by won_lines.py). Suggestions
-           are similarity-weighted: family match required, GC match x3, size within
-           0.5-2x of the takeoff SF x2. lo=p25 / suggested=weighted median / hi=p75. */
-        const WON_LINES=[
-          {f:"soffit",g:"New England",q:6729,r:35},{f:"soffit",g:"New England",q:3738,r:40},
-          {f:"fiber cement",g:"Callahan",q:168,r:40},{f:"lap",g:"Callahan",q:443,r:35},{f:"fiber cement",g:"Callahan",q:75,r:11.64},
-          {f:"acm",g:"Dellbrook",q:8693,r:40},{f:"insulation",g:"Dellbrook",q:8693,r:8.5},
-          {f:"fiber cement",g:"Dellbrook",q:11496,r:24.5},{f:"insulation",g:"Dellbrook",q:11496,r:8.5},
-          {f:"nichiha",g:"Dellbrook",q:2788,r:38.5},{f:"insulation",g:"Dellbrook",q:2788,r:8.5},
-          {f:"nichiha",g:"Dellbrook",q:234,r:38.5},{f:"insulation",g:"Dellbrook",q:234,r:8.5},
-          {f:"fiber cement",g:"Dellbrook",q:4870,r:28},
-          {f:"acm",g:"Nauset",q:21743,r:37.5},{f:"insulation",g:"Nauset",q:21743,r:8.5},
-          {f:"acm",g:"Nauset",q:949,r:37.5},{f:"insulation",g:"Nauset",q:949,r:8.5},
-          {f:"acm",g:"Nauset",q:877,r:37.5},{f:"insulation",g:"Nauset",q:877,r:8.5},
-          {f:"trespa",g:"Nauset",q:147,r:40},{f:"insulation",g:"Nauset",q:147,r:8.5},
-          {f:"acm",g:"Nauset",q:431,r:37.5},{f:"trespa",g:"Nauset",q:1669,r:40},
-          {f:"acm",g:"Nauset",q:85,r:37.5},{f:"trespa",g:"Nauset",q:44,r:40},
-          {f:"acm",g:"Nauset",q:430,r:37.5},{f:"acm",g:"Nauset",q:5381,r:37.5},
-          {f:"fiber cement",g:"Callahan",q:4812,r:25},{f:"insulation",g:"Callahan",q:4812,r:8},
-          {f:"fiber cement",g:"Callahan",q:24999,r:25},{f:"insulation",g:"Callahan",q:24999,r:5},
-          {f:"fiber cement",g:"Callahan",q:2282,r:23},{f:"insulation",g:"Callahan",q:2282,r:8},
-          {f:"fiber cement",g:"Callahan",q:3657,r:23},{f:"insulation",g:"Callahan",q:3657,r:8},
-          {f:"fiber cement",g:"Callahan",q:9149,r:28},
-          {f:"acm",g:"GenServ",q:70,r:45},{f:"acm",g:"GenServ",q:147,r:30},
-          {f:"acm",g:"GenServ",q:40,r:25},{f:"acm",g:"GenServ",q:15,r:45},{f:"acm",g:"GenServ",q:133,r:55},
-        ];
-        const FAM_KEYS={"acm":["acm","aluminum comp","alucobond","alpolic","reynobond"],"fiber cement":["fiber cement","hardie","fcp","fcl","fsh","fsv","board & batten","clapboard"],"nichiha":["nichiha","wood composite"],"trespa":["trespa","longboard"],"soffit":["soffit"],"lap":["lap","siding","shingle","cedar"],"insulation":["insulation","mineral wool"],"aluminum panel":["metal panel","metl","aluminum panel","alum wall"],"perforated":["perforated","perf "],"returns":["return"]};
-        const famOf=cat=>{const c=(cat||"").toLowerCase();for(const f in FAM_KEYS){if(FAM_KEYS[f].some(k=>c.includes(k)))return f;}return null;};
-        /* market reference (median of ALL 190 submitted bids, won_vs_rest.py) + the
-           HEIGHT effect measured from 64 height-annotated lines: FC +$2 >=55ft,
-           ACM ~+$9 above 35ft (we apply half, conservatively, and label it). */
-        const REST_MED={"acm":45,"fiber cement":28,"nichiha":38,"trespa":42,"soffit":30,"insulation":8.5,"aluminum panel":41,"lap":32};
-        const HEIGHT_ADJ=(f,h)=>{if(!h)return 0;
-          if(f==="fiber cement"&&h>=55)return 2;
-          if(f==="acm"&&h>=35)return 4.5;
-          return 0;};
-        const suggestRate=(cat,sf)=>{
-          const f=famOf(cat);if(!f)return null;
-          const gcNow=(bidGc.company||"").toLowerCase();
-          const hNow=parseFloat(bidGc.height)||0;
-          let cands=WON_LINES.filter(l=>l.f===f);
-          if(!cands.length&&(f==="aluminum panel"||f==="perforated"||f==="returns"))cands=WON_LINES.filter(l=>l.f==="acm");
-          if(!cands.length)return null;
-          const wl=cands.map(l=>{let w=1;
-            if(gcNow&&gcNow.includes(l.g.toLowerCase().split(" ")[0]))w*=3;
-            if(sf>0&&l.q>=sf*0.5&&l.q<=sf*2)w*=2;
-            return {r:l.r,w};});
-          wl.sort((a,b)=>a.r-b.r);
-          const tot=wl.reduce((s,x)=>s+x.w,0);
-          const pick=p=>{let acc=0;for(const x of wl){acc+=x.w;if(acc>=p*tot)return x.r;}return wl[wl.length-1].r;};
-          const gcHit=gcNow&&cands.some(l=>gcNow.includes(l.g.toLowerCase().split(" ")[0]));
-          const hAdj=HEIGHT_ADJ(f,hNow);
-          const rnd=v=>Math.round(v*2)/2;
-          return {lo:rnd(pick(0.25)+hAdj),med:rnd(pick(0.5)+hAdj),hi:rnd(pick(0.75)+hAdj),
-                  n:cands.length,gcHit,fam:f,hAdj,market:REST_MED[f]||null};
-        };
+        const suggestRate=(cat,sf)=>suggestRateCore(cat,sf,bidGc.company,parseFloat(bidGc.height)||0);
         return (
         <div style={{flex:1,overflowY:"auto",padding:"2rem"}}>
           <div style={{maxWidth:840,margin:"0 auto"}}>
