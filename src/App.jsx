@@ -2382,11 +2382,51 @@ export default function BFSEstimator() {
       {appTab==="scope"&&<ScopeView result={scopeResult} setResult={setScopeResult}/>}
       {appTab==="model"&&<ModelView/>}
       {appTab==="budget"&&(()=>{
-        /* PRICE ENGINE v1 — measured from BFS bid history (190 submitted bids) tagged
-           with the owner's WON list (26-145/162/183/207/214/219). Won-rate ranges per
-           material family, outlier-filtered 5-150 $/sf. Regenerate: won_analysis.py. */
-        const WON_RATES={"hardie":{lo:23,med:25,hi:40,n:8},"acm":{lo:25,med:38,hi:55,n:13},"lap":{lo:23,med:24,hi:40,n:4},"trespa":{lo:40,med:40,hi:40,n:3},"soffit":{lo:35,med:38,hi:40,n:3},"fiber cement":{lo:25,med:38,hi:45,n:16},"panel":{lo:25,med:38,hi:45,n:16},"insulation":{lo:5,med:8,hi:8,n:12}};
-        const wonOf=cat=>{const c=(cat||"").toLowerCase();for(const k in WON_RATES){if(c.includes(k))return WON_RATES[k];}return null;};
+        /* PRICE ENGINE v2 — LINE-LEVEL winning bids (42 priced lines from the owner's
+           won list, extracted from the submitted Excels by won_lines.py). Suggestions
+           are similarity-weighted: family match required, GC match x3, size within
+           0.5-2x of the takeoff SF x2. lo=p25 / suggested=weighted median / hi=p75. */
+        const WON_LINES=[
+          {f:"soffit",g:"New England",q:6729,r:35},{f:"soffit",g:"New England",q:3738,r:40},
+          {f:"fiber cement",g:"Callahan",q:168,r:40},{f:"lap",g:"Callahan",q:443,r:35},{f:"fiber cement",g:"Callahan",q:75,r:11.64},
+          {f:"acm",g:"Dellbrook",q:8693,r:40},{f:"insulation",g:"Dellbrook",q:8693,r:8.5},
+          {f:"fiber cement",g:"Dellbrook",q:11496,r:24.5},{f:"insulation",g:"Dellbrook",q:11496,r:8.5},
+          {f:"nichiha",g:"Dellbrook",q:2788,r:38.5},{f:"insulation",g:"Dellbrook",q:2788,r:8.5},
+          {f:"nichiha",g:"Dellbrook",q:234,r:38.5},{f:"insulation",g:"Dellbrook",q:234,r:8.5},
+          {f:"fiber cement",g:"Dellbrook",q:4870,r:28},
+          {f:"acm",g:"Nauset",q:21743,r:37.5},{f:"insulation",g:"Nauset",q:21743,r:8.5},
+          {f:"acm",g:"Nauset",q:949,r:37.5},{f:"insulation",g:"Nauset",q:949,r:8.5},
+          {f:"acm",g:"Nauset",q:877,r:37.5},{f:"insulation",g:"Nauset",q:877,r:8.5},
+          {f:"trespa",g:"Nauset",q:147,r:40},{f:"insulation",g:"Nauset",q:147,r:8.5},
+          {f:"acm",g:"Nauset",q:431,r:37.5},{f:"trespa",g:"Nauset",q:1669,r:40},
+          {f:"acm",g:"Nauset",q:85,r:37.5},{f:"trespa",g:"Nauset",q:44,r:40},
+          {f:"acm",g:"Nauset",q:430,r:37.5},{f:"acm",g:"Nauset",q:5381,r:37.5},
+          {f:"fiber cement",g:"Callahan",q:4812,r:25},{f:"insulation",g:"Callahan",q:4812,r:8},
+          {f:"fiber cement",g:"Callahan",q:24999,r:25},{f:"insulation",g:"Callahan",q:24999,r:5},
+          {f:"fiber cement",g:"Callahan",q:2282,r:23},{f:"insulation",g:"Callahan",q:2282,r:8},
+          {f:"fiber cement",g:"Callahan",q:3657,r:23},{f:"insulation",g:"Callahan",q:3657,r:8},
+          {f:"fiber cement",g:"Callahan",q:9149,r:28},
+          {f:"acm",g:"GenServ",q:70,r:45},{f:"acm",g:"GenServ",q:147,r:30},
+          {f:"acm",g:"GenServ",q:40,r:25},{f:"acm",g:"GenServ",q:15,r:45},{f:"acm",g:"GenServ",q:133,r:55},
+        ];
+        const FAM_KEYS={"acm":["acm","aluminum comp","alucobond","alpolic","reynobond"],"fiber cement":["fiber cement","hardie","fcp","fcl","fsh","fsv","board & batten","clapboard"],"nichiha":["nichiha","wood composite"],"trespa":["trespa","longboard"],"soffit":["soffit"],"lap":["lap","siding","shingle","cedar"],"insulation":["insulation","mineral wool"],"aluminum panel":["metal panel","metl","aluminum panel","alum wall"],"perforated":["perforated","perf "],"returns":["return"]};
+        const famOf=cat=>{const c=(cat||"").toLowerCase();for(const f in FAM_KEYS){if(FAM_KEYS[f].some(k=>c.includes(k)))return f;}return null;};
+        const suggestRate=(cat,sf)=>{
+          const f=famOf(cat);if(!f)return null;
+          const gcNow=(bidGc.company||"").toLowerCase();
+          let cands=WON_LINES.filter(l=>l.f===f);
+          if(!cands.length&&(f==="aluminum panel"||f==="perforated"||f==="returns"))cands=WON_LINES.filter(l=>l.f==="acm");
+          if(!cands.length)return null;
+          const wl=cands.map(l=>{let w=1;
+            if(gcNow&&gcNow.includes(l.g.toLowerCase().split(" ")[0]))w*=3;
+            if(sf>0&&l.q>=sf*0.5&&l.q<=sf*2)w*=2;
+            return {r:l.r,w};});
+          wl.sort((a,b)=>a.r-b.r);
+          const tot=wl.reduce((s,x)=>s+x.w,0);
+          const pick=p=>{let acc=0;for(const x of wl){acc+=x.w;if(acc>=p*tot)return x.r;}return wl[wl.length-1].r;};
+          const gcHit=gcNow&&cands.some(l=>gcNow.includes(l.g.toLowerCase().split(" ")[0]));
+          return {lo:pick(0.25),med:pick(0.5),hi:pick(0.75),n:cands.length,gcHit,fam:f};
+        };
         return (
         <div style={{flex:1,overflowY:"auto",padding:"2rem"}}>
           <div style={{maxWidth:840,margin:"0 auto"}}>
@@ -2419,7 +2459,16 @@ export default function BFSEstimator() {
                     <div style={{textAlign:"right"}}><input type="number" value={Math.round(r.net)} onChange={e=>setSf(r.cat,parseFloat(e.target.value)||0)} style={{width:64,textAlign:"right",padding:"0.22rem 0.35rem",borderRadius:5,border:"1px solid #E2E8F0",fontSize:"0.74rem",fontFamily:"inherit",color:"#334155"}}/></div>
                     <div style={{textAlign:"right",whiteSpace:"nowrap"}}><input type="number" value={r.wastePct} onChange={e=>setWasteMat(r.cat,parseFloat(e.target.value)||0)} title="waste % for this material" style={{width:36,textAlign:"right",padding:"0.22rem 0.25rem",borderRadius:5,border:"1px solid #E2E8F0",fontSize:"0.7rem",fontFamily:"inherit",color:"#64748B"}}/><span style={{fontSize:"0.6rem",color:"#94A3B8"}}>% → </span><span style={{color:"#94A3B8"}}>{Math.round(r.adjSF).toLocaleString()}</span></div>
                     <div style={{textAlign:"right",whiteSpace:"nowrap"}}><span style={{color:"#94A3B8"}}>$</span><input type="number" value={r.rate} onChange={e=>setRate(r.cat,parseFloat(e.target.value)||0)} style={{width:60,textAlign:"right",padding:"0.22rem 0.35rem",borderRadius:5,border:"1px solid #CBD5E1",fontSize:"0.74rem",fontFamily:"inherit"}}/>
-                      {(()=>{const w=wonOf(r.cat);return w?<div style={{fontSize:"0.5rem",color:"#14A8A0",fontWeight:700,marginTop:2,cursor:"pointer"}} title={`BFS won ${w.n} bid lines in this family at $${w.lo}-$${w.hi}/sf — click to use the winning median`} onClick={()=>setRate(r.cat,w.med)}>won ${w.lo}–{w.hi} · med ${w.med}</div>:null;})()}</div>
+                      {(()=>{const w=suggestRate(r.cat,r.adjSF);if(!w)return null;
+                        const btn=(v,lab,strong)=>(
+                          <span key={lab} onClick={()=>setRate(r.cat,v)} title={`${lab} winning rate — click to apply`}
+                            style={{cursor:"pointer",padding:"0.1rem 0.3rem",borderRadius:4,fontSize:"0.52rem",fontWeight:800,
+                                    background:strong?"#14A8A0":"rgba(20,168,160,0.1)",color:strong?"#fff":"#0E7A73",
+                                    border:"1px solid "+(strong?"#14A8A0":"#7DDDD6"),marginLeft:3}}>${v}</span>);
+                        return <div style={{marginTop:3,whiteSpace:"nowrap"}} title={`from ${w.n} winning ${w.fam} lines${w.gcHit?" — incl. this GC's wins (weighted 3x)":""}; sized to this takeoff`}>
+                          <span style={{fontSize:"0.5rem",color:"#8FA3BC",fontWeight:700}}>won{w.gcHit?" @GC":""}:</span>
+                          {btn(w.lo,"low",false)}{btn(w.med,"suggested",true)}{btn(w.hi,"high",false)}
+                        </div>;})()}</div>
                     <div style={{textAlign:"right",fontWeight:700,color:"#122A45",fontVariantNumeric:"tabular-nums"}}>${Math.round(r.cost).toLocaleString()}</div>
                   </div>
                 ))}
