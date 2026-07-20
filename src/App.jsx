@@ -12,6 +12,12 @@ try {
   const _k = _u.searchParams.get("key");
   if (_k) { localStorage.setItem("bfs_app_key", _k); _u.searchParams.delete("key"); window.history.replaceState({}, "", _u.toString()); }
 } catch {}
+// src/href URLs (img tags) can't carry headers — append the key as a query param
+const withKey = (url) => {
+  try { const k = localStorage.getItem("bfs_app_key") || ""; if (!k) return url;
+        return url + (url.includes("?") ? "&" : "?") + "key=" + encodeURIComponent(k); }
+  catch { return url; }
+};
 {
   const _origFetch = window.fetch.bind(window);
   window.fetch = (input, init = {}) => {
@@ -322,7 +328,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
       .then(r=>r.ok?r.json():{polygons:[],width:612,height:792})
       .then(d=>{setPagePolygons(d.polygons||[]);setPageDims({width:d.width||612,height:d.height||792});})
       .catch(()=>{});
-    setPageImage(BACKEND+"/page-image/"+results.jobId+"/"+pageNum);
+    setPageImage(withKey(BACKEND+"/page-image/"+results.jobId+"/"+pageNum));
   }, [elevIdx, pageNum, results.jobId, BACKEND]);
 
   // ✂ v13 boundary cut suggestions for the selected piece (one at a time)
@@ -986,7 +992,7 @@ function EditorView({ results, BACKEND, setResults }) {
       setPolys((d.polygons||[]).map((p,i)=>({id:i,points:p.points||[],category:p.material_type||p.category||"Other",area_sf:p.area_sf||0})));
     }).catch(()=>{});
     const im=new window.Image();
-    im.src=BACKEND+"/page-image/"+results.jobId+"/"+pageNum;
+    im.src=withKey(BACKEND+"/page-image/"+results.jobId+"/"+pageNum);
     im.onload=()=>setImg(im);
   },[elevIdx,pageNum,results.jobId,BACKEND]);
 
