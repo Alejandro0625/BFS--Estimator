@@ -4,6 +4,26 @@ import * as XLSX from "xlsx";
 import { Stage, Layer, Line, Circle, Image as KImage } from "react-konva";
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || "";
+// APP LOCK (#32, dark until BFS_APP_KEY is set server-side): a ?key=XXX share link
+// stores the key; every backend call carries it as X-BFS-Key. No key stored = no
+// header value = today's open behavior, byte-for-byte.
+try {
+  const _u = new URL(window.location.href);
+  const _k = _u.searchParams.get("key");
+  if (_k) { localStorage.setItem("bfs_app_key", _k); _u.searchParams.delete("key"); window.history.replaceState({}, "", _u.toString()); }
+} catch {}
+{
+  const _origFetch = window.fetch.bind(window);
+  window.fetch = (input, init = {}) => {
+    try {
+      if (BACKEND && String(typeof input === "string" ? input : input.url).startsWith(BACKEND)) {
+        const k = localStorage.getItem("bfs_app_key") || "";
+        if (k) init.headers = { ...(init.headers || {}), "X-BFS-Key": k };
+      }
+    } catch {}
+    return _origFetch(input, init);
+  };
+}
 const BLUE      = "#1B4F8A";   // Blueprint Precision: deep blue = structure & authority
 const BLUE_DARK = "#143C6B";
 const BLUE_PALE = "#EBF2FA";
