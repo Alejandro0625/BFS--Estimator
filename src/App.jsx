@@ -2381,7 +2381,13 @@ export default function BFSEstimator() {
 
       {appTab==="scope"&&<ScopeView result={scopeResult} setResult={setScopeResult}/>}
       {appTab==="model"&&<ModelView/>}
-      {appTab==="budget"&&(
+      {appTab==="budget"&&(()=>{
+        /* PRICE ENGINE v1 — measured from BFS bid history (190 submitted bids) tagged
+           with the owner's WON list (26-145/162/183/207/214/219). Won-rate ranges per
+           material family, outlier-filtered 5-150 $/sf. Regenerate: won_analysis.py. */
+        const WON_RATES={"hardie":{lo:23,med:25,hi:40,n:8},"acm":{lo:25,med:38,hi:55,n:13},"lap":{lo:23,med:24,hi:40,n:4},"trespa":{lo:40,med:40,hi:40,n:3},"soffit":{lo:35,med:38,hi:40,n:3},"fiber cement":{lo:25,med:38,hi:45,n:16},"panel":{lo:25,med:38,hi:45,n:16},"insulation":{lo:5,med:8,hi:8,n:12}};
+        const wonOf=cat=>{const c=(cat||"").toLowerCase();for(const k in WON_RATES){if(c.includes(k))return WON_RATES[k];}return null;};
+        return (
         <div style={{flex:1,overflowY:"auto",padding:"2rem"}}>
           <div style={{maxWidth:840,margin:"0 auto"}}>
             <div style={{fontSize:"0.7rem",letterSpacing:"0.18em",color:BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"0.3rem"}}>Suggested Pricing</div>
@@ -2412,7 +2418,8 @@ export default function BFSEstimator() {
                     <div style={{fontWeight:600,color:"#0F172A"}}>{r.cat}</div>
                     <div style={{textAlign:"right"}}><input type="number" value={Math.round(r.net)} onChange={e=>setSf(r.cat,parseFloat(e.target.value)||0)} style={{width:64,textAlign:"right",padding:"0.22rem 0.35rem",borderRadius:5,border:"1px solid #E2E8F0",fontSize:"0.74rem",fontFamily:"inherit",color:"#334155"}}/></div>
                     <div style={{textAlign:"right",whiteSpace:"nowrap"}}><input type="number" value={r.wastePct} onChange={e=>setWasteMat(r.cat,parseFloat(e.target.value)||0)} title="waste % for this material" style={{width:36,textAlign:"right",padding:"0.22rem 0.25rem",borderRadius:5,border:"1px solid #E2E8F0",fontSize:"0.7rem",fontFamily:"inherit",color:"#64748B"}}/><span style={{fontSize:"0.6rem",color:"#94A3B8"}}>% → </span><span style={{color:"#94A3B8"}}>{Math.round(r.adjSF).toLocaleString()}</span></div>
-                    <div style={{textAlign:"right",whiteSpace:"nowrap"}}><span style={{color:"#94A3B8"}}>$</span><input type="number" value={r.rate} onChange={e=>setRate(r.cat,parseFloat(e.target.value)||0)} style={{width:60,textAlign:"right",padding:"0.22rem 0.35rem",borderRadius:5,border:"1px solid #CBD5E1",fontSize:"0.74rem",fontFamily:"inherit"}}/></div>
+                    <div style={{textAlign:"right",whiteSpace:"nowrap"}}><span style={{color:"#94A3B8"}}>$</span><input type="number" value={r.rate} onChange={e=>setRate(r.cat,parseFloat(e.target.value)||0)} style={{width:60,textAlign:"right",padding:"0.22rem 0.35rem",borderRadius:5,border:"1px solid #CBD5E1",fontSize:"0.74rem",fontFamily:"inherit"}}/>
+                      {(()=>{const w=wonOf(r.cat);return w?<div style={{fontSize:"0.5rem",color:"#14A8A0",fontWeight:700,marginTop:2,cursor:"pointer"}} title={`BFS won ${w.n} bid lines in this family at $${w.lo}-$${w.hi}/sf — click to use the winning median`} onClick={()=>setRate(r.cat,w.med)}>won ${w.lo}–{w.hi} · med ${w.med}</div>:null;})()}</div>
                     <div style={{textAlign:"right",fontWeight:700,color:"#122A45",fontVariantNumeric:"tabular-nums"}}>${Math.round(r.cost).toLocaleString()}</div>
                   </div>
                 ))}
@@ -2481,7 +2488,7 @@ export default function BFSEstimator() {
             </>)}
           </div>
         </div>
-      )}
+      );})()}
       {appTab==="queue"&&<QueueView onOpen={openResult}/>}
       {appTab==="manual"&&<ManualView results={results} BACKEND={BACKEND}/>}
 
