@@ -2274,7 +2274,7 @@ export default function BFSEstimator() {
       {/* ── Header — Blueprint Precision: white bar, hairline rule, sliding-underline nav ── */}
       <header style={{background:"#FFFFFF",height:72,padding:"0 2rem",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,borderBottom:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.05)",zIndex:10}}>
         <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:"1.1rem"}}>
-          <a href="https://bostonpanelsystems.com" target="_blank" rel="noreferrer" title="bostonpanelsystems.com" style={{display:"flex",alignItems:"center"}}>
+          <a href="https://bostonpanelsystems.com" target="_blank" rel="noreferrer" title="Boston Facade Systems" style={{display:"flex",alignItems:"center"}}>
             <img src="/logo-bfs.png" alt="Boston Facade Systems" style={{height:46,width:"auto",cursor:"pointer"}}/>
           </a>
           <div style={{width:1,height:36,background:"#E3EAF3"}}/>
