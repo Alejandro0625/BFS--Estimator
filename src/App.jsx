@@ -1947,6 +1947,9 @@ export default function BFSEstimator() {
   // Saved rate cards (per-firm/per-job pricing you reuse) — persisted so you never re-enter rates
   const [rateCards, setRateCards] = useState(()=>{ try{ return JSON.parse(localStorage.getItem("bfs_rate_cards"))||{}; }catch{ return {}; } });
   const [rateCardName, setRateCardName] = useState("");
+  // BFS proposal (template v2) — GC contact block, remembered across jobs
+  const [bidGc, setBidGc] = useState(()=>{ try{ return JSON.parse(localStorage.getItem("bfs_bid_gc"))||{contact:"",company:"",city:"",email:"",phone:"",estimator:"",job_number:""}; }catch{ return {contact:"",company:"",city:"",email:"",phone:"",estimator:"",job_number:""}; } });
+  const updBidGc = (k,v)=>{ setBidGc(p=>{ const n={...p,[k]:v}; try{ localStorage.setItem("bfs_bid_gc",JSON.stringify(n)); }catch{} return n; }); };
   const [assignments, setAssignments] = useState({});
   const [groupRename, setGroupRename] = useState({});   // {backendGroupName: estimator name} — propagates across all pages of a job
   const [hiddenIds, setHiddenIds] = useState({});       // deleted highlights — lifted here so they SAVE with the bid
@@ -2242,6 +2245,33 @@ export default function BFSEstimator() {
     XLSX.writeFile(wb,"BFS_Budget_"+(results.projName||"Project").replace(/\s+/g,"_")+".xlsx");
     captureFinal("budget");
   };
+  // BFS PROPOSAL (template v2): the estimator's real letterhead workbook, filled her
+  // way — per-page quantity formulas (=2049+321), M-codes, linked TOTAL. Server-side
+  // clone of the validated template (13/13 cell-match vs the submitted Malden bid).
+  const exportBidV2=async()=>{
+    if(!results||!priceRows.length)return;
+    if(!moneyGuard())return;
+    const perPageByCat={};
+    (results.takeoffData||[]).forEach(e=>(e.zones||[]).forEach(z=>{
+      const k=dispName(z.category||"Other");const pg=e.pageNumber||1;
+      (perPageByCat[k]=perPageByCat[k]||{})[pg]=(perPageByCat[k][pg]||0)+(z.netArea||0);
+    }));
+    Object.entries(bucketByMat||{}).forEach(([k,sf])=>{if(sf>0){(perPageByCat[k]=perPageByCat[k]||{})[0]=(perPageByCat[k][0]||0)+sf;}});
+    const materials=priceRows.map((r,i)=>({code:"M"+(i+1),desc:r.cat,per_page:perPageByCat[r.cat]||{1:Math.round(r.net)},rate:r.rate,unit:"sf"}));
+    const payload={date:new Date().toLocaleDateString("en-US"),job_name:results.projName||"",
+      job_number:bidGc.job_number||"",estimator:bidGc.estimator||"",
+      gc:{contact:bidGc.contact,company:bidGc.company,city:bidGc.city,email:bidGc.email,phone:bidGc.phone},
+      materials};
+    try{
+      const r=await fetch(BACKEND+"/bid-excel",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+      if(!r.ok)throw new Error("server "+r.status);
+      const blob=await r.blob();
+      const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+      a.download=((bidGc.job_number||"bid")+" - "+(results.projName||"proposal")).replace(/[\\/:*?"<>|]/g,"").slice(0,70)+".xlsx";
+      a.click();URL.revokeObjectURL(a.href);
+      captureFinal("bid-v2");
+    }catch(e){alert("Proposal export failed: "+e.message);}
+  };
   // ── Rate cards: save the rates you set, reuse them on the next job (per firm/job) ──
   const persistRateCards=rc=>{ setRateCards(rc); try{ localStorage.setItem("bfs_rate_cards",JSON.stringify(rc)); }catch{} };
   const saveRateCard=()=>{
@@ -2407,6 +2437,20 @@ export default function BFSEstimator() {
                   <span style={{fontSize:"1.7rem",fontWeight:800,color:TEAL,fontVariantNumeric:"tabular-nums"}}>$<CountUp value={budgetTotal}/></span>
                 </div>
                 <button onClick={exportBudgetExcel} style={{width:"100%",marginTop:"0.9rem",padding:"0.7rem",background:TEAL,color:"#06283D",border:"none",borderRadius:8,fontSize:"0.78rem",fontWeight:800,fontFamily:"inherit",cursor:"pointer",boxShadow:"0 2px 8px rgba(42,191,191,0.35)"}}>↓ Export / update the Excel</button>
+              </div>
+              {/* BFS PROPOSAL — the real letterhead workbook (template v2) */}
+              <div style={{marginTop:"1rem",background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",padding:"0.9rem 1rem"}}>
+                <div style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:"0.55rem"}}>BFS Proposal — letterhead workbook</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0.45rem",marginBottom:"0.6rem"}}>
+                  {[["job_number","Job # (26-XXX)"],["contact","GC contact name"],["company","GC company"],["city","GC city, state"],["email","GC email"],["phone","GC phone"]].map(([k,ph])=>(
+                    <input key={k} value={bidGc[k]||""} onChange={e=>updBidGc(k,e.target.value)} placeholder={ph} style={{padding:"0.34rem 0.5rem",borderRadius:6,border:"1px solid #C3D2E4",fontSize:"0.68rem",fontFamily:"inherit",color:"#1E3A5F",minWidth:0}}/>
+                  ))}
+                </div>
+                <div style={{display:"flex",gap:"0.45rem",alignItems:"center"}}>
+                  <input value={bidGc.estimator||""} onChange={e=>updBidGc("estimator",e.target.value)} placeholder="Estimator name" style={{flex:1,padding:"0.34rem 0.5rem",borderRadius:6,border:"1px solid #C3D2E4",fontSize:"0.68rem",fontFamily:"inherit",color:"#1E3A5F",minWidth:0}}/>
+                  <button onClick={exportBidV2} style={{padding:"0.5rem 0.9rem",background:BLUE,color:"#fff",border:"none",borderRadius:8,fontSize:"0.72rem",fontWeight:800,fontFamily:"inherit",cursor:"pointer",boxShadow:"0 2px 6px rgba(27,79,138,0.25)"}}>📄 Export BFS Proposal</button>
+                </div>
+                <div style={{fontSize:"0.56rem",color:"#8FA3BC",marginTop:"0.45rem",lineHeight:1.45}}>Your real proposal letterhead, filled the house way: M-coded material rows, per-elevation quantity formulas (=2049+321), Amount = Qty × Rate, TOTAL linked to the Estimate sheet. Review in Excel before sending.</div>
               </div>
             </>)}
           </div>
