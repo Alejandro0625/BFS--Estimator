@@ -2468,14 +2468,20 @@ export default function BFSEstimator() {
                     <div style={{textAlign:"right",whiteSpace:"nowrap"}}><input type="number" value={r.wastePct} onChange={e=>setWasteMat(r.cat,parseFloat(e.target.value)||0)} title="waste % for this material" style={{width:36,textAlign:"right",padding:"0.22rem 0.25rem",borderRadius:5,border:"1px solid #E2E8F0",fontSize:"0.7rem",fontFamily:"inherit",color:"#64748B"}}/><span style={{fontSize:"0.6rem",color:"#94A3B8"}}>% → </span><span style={{color:"#94A3B8"}}>{Math.round(r.adjSF).toLocaleString()}</span></div>
                     <div style={{textAlign:"right",whiteSpace:"nowrap"}}><span style={{color:"#94A3B8"}}>$</span><input type="number" value={r.rate} onChange={e=>setRate(r.cat,parseFloat(e.target.value)||0)} style={{width:60,textAlign:"right",padding:"0.22rem 0.35rem",borderRadius:5,border:"1px solid #CBD5E1",fontSize:"0.74rem",fontFamily:"inherit"}}/>
                       {(()=>{const w=suggestRate(r.cat,r.adjSF);if(!w)return null;
-                        const btn=(v,lab,strong)=>(
-                          <span key={lab} onClick={()=>setRate(r.cat,v)} title={`${lab} winning rate — click to apply`}
-                            style={{cursor:"pointer",padding:"0.1rem 0.3rem",borderRadius:4,fontSize:"0.52rem",fontWeight:800,
-                                    background:strong?"#14A8A0":"rgba(20,168,160,0.1)",color:strong?"#fff":"#0E7A73",
-                                    border:"1px solid "+(strong?"#14A8A0":"#7DDDD6"),marginLeft:3}}>${v}</span>);
-                        return <div style={{marginTop:3,whiteSpace:"nowrap"}} title={`from ${w.n} winning ${w.fam} lines${w.gcHit?" — incl. this GC's wins (weighted 3x)":""}; sized to this takeoff${w.hAdj?`; +$${w.hAdj} tall-building adj (measured from height-annotated bids)`:""}${w.market?`; you typically BID $${w.market} in this family — wins happen at the buttons`:""}`}>
-                          <span style={{fontSize:"0.5rem",color:"#8FA3BC",fontWeight:700}}>won{w.gcHit?" @GC":""}{w.hAdj?` +${w.hAdj}h`:""}:</span>
-                          {btn(w.lo,"low",false)}{btn(w.med,"suggested",true)}{btn(w.hi,"high",false)}
+                        /* Owner's pricing philosophy: SUGGESTED (winning median) / HIGHER (GCs
+                           we rarely work with — room to charge) / LOWER (partners we protect)
+                           / CUSTOM (the rate box above — type anything). SF is never touched. */
+                        const active=Math.abs(r.rate-w.med)<0.01?"S":Math.abs(r.rate-w.hi)<0.01?"H":Math.abs(r.rate-w.lo)<0.01?"L":"C";
+                        const btn=(v,tag,lab,tip)=>(
+                          <span key={tag} onClick={()=>setRate(r.cat,v)} title={tip}
+                            style={{cursor:"pointer",padding:"0.1rem 0.32rem",borderRadius:4,fontSize:"0.52rem",fontWeight:800,
+                                    background:active===tag?"#14A8A0":"rgba(20,168,160,0.08)",color:active===tag?"#fff":"#0E7A73",
+                                    border:"1px solid "+(active===tag?"#14A8A0":"#7DDDD6"),marginLeft:3}}>{lab} ${v}</span>);
+                        return <div style={{marginTop:3,whiteSpace:"nowrap"}} title={`From ${w.n} winning ${w.fam} lines${w.gcHit?" — including this GC's own wins (weighted 3x)":""}${w.hAdj?`; includes +$${w.hAdj} tall-building adjustment`:""}. Custom: type any rate in the box.`}>
+                          <span style={{fontSize:"0.5rem",color:"#8FA3BC",fontWeight:700}}>{active==="C"?"custom ✎":"won-rate"}{w.hAdj?` +${w.hAdj}h`:""}:</span>
+                          {btn(w.med,"S","Sug","Suggested — best estimate from similar WINNING jobs")}
+                          {btn(w.hi,"H","Hi",w.gcHit?"Higher — room to price up":"Higher — this GC isn't in our winning history; room to charge more")}
+                          {btn(w.lo,"L","Lo",w.gcHit?"Lower — partner GC we want to keep; protect the relationship":"Lower — competitive floor from winning bids")}
                           {w.market&&w.market>w.hi&&<span style={{fontSize:"0.48rem",color:"#B5C4D6",marginLeft:4}} title="median of ALL your submitted bids in this family — the number that usually loses">mkt ${w.market}</span>}
                         </div>;})()}</div>
                     <div style={{textAlign:"right",fontWeight:700,color:"#122A45",fontVariantNumeric:"tabular-nums"}}>${Math.round(r.cost).toLocaleString()}</div>
