@@ -297,7 +297,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   useEffect(() => {
     if (!pageNum || !results.jobId) return;
     setPageImage(null); setImgLoaded(false); setPagePolygons([]); setActiveGroup(null); setCalibMode(false); setCalibPts([]);
-    setGroupMode(false); setPreviewGroups([]); setSelGroups({}); setBucketMode(false); setCornerMode(false);
+    setGroupMode(false); setPreviewGroups([]); setSelGroups({}); setBucketMode(false); setCornerMode(false); setSplitSug(null);
     fetch(BACKEND+"/polygons/"+results.jobId+"/"+pageNum)
       .then(r=>r.ok?r.json():{polygons:[],width:612,height:792})
       .then(d=>{setPagePolygons(d.polygons||[]);setPageDims({width:d.width||612,height:d.height||792});})
@@ -305,9 +305,12 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     setPageImage(BACKEND+"/page-image/"+results.jobId+"/"+pageNum);
   }, [elevIdx, pageNum, results.jobId, BACKEND]);
 
+  // ✂ v13 boundary cut suggestions for the selected piece (one at a time)
+  const [splitSug,setSplitSug]=useState(null);
+  const [splitBusy,setSplitBusy]=useState(false);
   // NEW JOB → clear all per-job marks (bucket fills, group picks). Without this, shapes from the
   // previous drawing would silently flow into the next job's totals/Excel — a money bug.
-  useEffect(()=>{ setSelGroups({}); setPreviewGroups([]); setSnapMsg(""); setPageScales({}); }, [results.jobId]);  // bucketShapes reset at app level (survives tab switches)
+  useEffect(()=>{ setSelGroups({}); setPreviewGroups([]); setSnapMsg(""); setPageScales({}); setSplitSug(null); }, [results.jobId]);  // bucketShapes reset at app level (survives tab switches)
   // Pull shared learning from the server into local memory (so repeats are pre-identified)
   useEffect(()=>{
     fetch(BACKEND+"/recall").then(r=>r.ok?r.json():null).then(d=>{
@@ -352,6 +355,31 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   const selectedZones = displayZones.filter(z=>selectedIds.includes(z.id));
   const selectedSF = selectedZones.reduce((s,z)=>s+(z.area_sf||0),0);
   const groupSig = hatchSig(selectedZones.find(z=>hatchSig(z)));
+  // ✂ helpers: half-plane clip + shoelace; applied cuts split the piece and feed /learn
+  const _clipHalf=(pts,axis,pos,low)=>{const out=[];for(let i=0;i<pts.length;i++){const a=pts[i],b=pts[(i+1)%pts.length];const av=axis==="v"?a[0]:a[1],bv=axis==="v"?b[0]:b[1];const ai=low?av<=pos:av>=pos,bi=low?bv<=pos:bv>=pos;if(ai)out.push(a);if(ai!==bi){const t=(pos-av)/((bv-av)||1e-9);out.push([a[0]+t*(b[0]-a[0]),a[1]+t*(b[1]-a[1])]);}}return out;};
+  const _shoe=pts=>{let s=0;for(let i=0;i<pts.length;i++){const[x1,y1]=pts[i],[x2,y2]=pts[(i+1)%pts.length];s+=x1*y2-x2*y1;}return Math.abs(s)/2;};
+  const suggestSplits=async()=>{
+    const z=selectedZones.slice().sort((a,b)=>(b.area_sf||0)-(a.area_sf||0))[0];
+    if(!z||!(z.points||[]).length)return;
+    setSplitBusy(true);
+    try{
+      const r=await fetch(BACKEND+"/split-suggest",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page:pageNum,points:z.points})});
+      const d=r.ok?await r.json():{cuts:[]};
+      setSplitSug({zoneId:z.id,cuts:(d.cuts||[]).slice(0,4)});
+    }catch(e){setSplitSug({zoneId:z.id,cuts:[]});}
+    setSplitBusy(false);
+  };
+  const applySplit=(cut)=>{
+    const z=displayZones.find(q=>q.id===(splitSug&&splitSug.zoneId)); if(!z)return;
+    const A=_clipHalf(z.points,cut.axis,cut.pos,true),B=_clipHalf(z.points,cut.axis,cut.pos,false);
+    if(A.length<3||B.length<3)return;
+    const aA=_shoe(A),aB=_shoe(B),tot=(aA+aB)||1;const holes=z.holes||[];
+    const side=h=>{const c=h.reduce((s,p)=>s+(cut.axis==="v"?p[0]:p[1]),0)/h.length;return c<=cut.pos;};
+    const mk=(pts,frac,suf,hs)=>({...z,id:String(z.id)+"_s"+suf,points:pts,holes:hs,area_sf:(z.area_sf||0)*frac,cx:pts.reduce((s,p)=>s+p[0],0)/pts.length,cy:pts.reduce((s,p)=>s+p[1],0)/pts.length});
+    setPagePolygons(prev=>prev.filter(p=>p.id!==z.id).concat([mk(A,aA/tot,1,holes.filter(side)),mk(B,aB/tot,2,holes.filter(h=>!side(h)))]));
+    setSplitSug(null);
+    fetch(BACKEND+"/learn",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page:pageNum,source:"split",shapes:[{parent:z.id,axis:cut.axis,pos:cut.pos,accepted:true}]})}).catch(()=>{});
+  };
   // Pre-fill the rename box with the group's current name when a group is selected
   useEffect(()=>{
     if(!activeGroup){ setGroupNameDraft(""); return; }
@@ -670,6 +698,16 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
               })}
               {calibPts.length===2&&<line x1={calibPts[0].x*pageDims.width} y1={calibPts[0].y*pageDims.height} x2={calibPts[1].x*pageDims.width} y2={calibPts[1].y*pageDims.height} stroke="#EF4444" strokeWidth={pageDims.width/350} strokeDasharray={pageDims.width/90}/>}
               {calibPts.map((p,i)=><circle key={"cp"+i} cx={p.x*pageDims.width} cy={p.y*pageDims.height} r={pageDims.width/110} fill="#EF4444" stroke="#fff" strokeWidth={pageDims.width/600}/>)}
+              {splitSug&&splitSug.cuts.length>0&&splitSug.cuts.map((c,i)=>{
+                const x1=c.axis==="v"?c.pos*pageDims.width:((c.span&&c.span[0])||0)*pageDims.width;
+                const x2=c.axis==="v"?c.pos*pageDims.width:((c.span&&c.span[1])||1)*pageDims.width;
+                const y1=c.axis==="v"?((c.span&&c.span[0])||0)*pageDims.height:c.pos*pageDims.height;
+                const y2=c.axis==="v"?((c.span&&c.span[1])||1)*pageDims.height:c.pos*pageDims.height;
+                return <g key={"cut"+i} style={{pointerEvents:"none"}}>
+                  <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#2ABFBF" strokeWidth={pageDims.width/280} strokeDasharray={pageDims.width/110}/>
+                  <circle cx={(x1+x2)/2} cy={(y1+y2)/2} r={pageDims.width/95} fill="#2ABFBF"/>
+                  <text x={(x1+x2)/2} y={(y1+y2)/2+pageDims.width/350} textAnchor="middle" dominantBaseline="middle" fill="#06283D" fontSize={pageDims.width/95} fontFamily="Inter,Arial" fontWeight="bold">{i+1}</text>
+                </g>;})}
               {pageBucketShapes.map(s=>{const cx=s.points.reduce((a,p)=>a+p[0],0)/s.points.length*pageDims.width,cy=s.points.reduce((a,p)=>a+p[1],0)/s.points.length*pageDims.height;const warn=s.openings_review;const col=s.color||(warn?"#F59E0B":"#10B981");return <g key={"bk"+s.id}>
                 <polygon points={toSVGPoints(s.points)} fill={col} fillOpacity={editShape===s.id?0.6:0.5} stroke={editShape===s.id?"#fff":col} strokeWidth={editShape===s.id?2.6:1.4} onClick={s.sfScale?(e=>{e.stopPropagation();setEditShape(editShape===s.id?null:s.id);}):undefined} style={s.sfScale?{cursor:"pointer"}:undefined}/>
                 {editShape===s.id&&s.points.map((pt,i)=>{const q=s.points[(i+1)%s.points.length];const mx=(pt[0]+q[0])/2*pageDims.width,my=(pt[1]+q[1])/2*pageDims.height,hs=pageDims.width/300;return <rect key={"m"+i} x={mx-hs} y={my-hs} width={hs*2} height={hs*2} fill="#93C5FD" stroke="#1D4ED8" strokeWidth={pageDims.width/900} style={{cursor:"copy"}} onMouseDown={e=>{e.stopPropagation();e.preventDefault();const mpt=[(pt[0]+q[0])/2,(pt[1]+q[1])/2];setBucketShapes(prev=>prev.map(sh=>sh.id!==s.id?sh:{...sh,points:[...sh.points.slice(0,i+1),mpt,...sh.points.slice(i+1)]}));dragRef.current={sid:s.id,vi:i+1};}}/>;})}
@@ -750,6 +788,16 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
                   {mp!==null&&mp<100&&<div style={{marginTop:3,color:"#7E93AD"}}>measured: this reader lands within 15% on <b style={{color:"#B9CBDE"}}>{mp}%</b> of 4,230 benchmark walls blind — your confirm makes it exact</div>}
                 </div>;
               })()}
+              {selectedZones.length>0&&(
+                <div style={{marginTop:6}}>
+                  {!splitSug&&<button onClick={suggestSplits} disabled={splitBusy} style={{width:"100%",padding:"0.35rem",background:"transparent",border:"1px dashed #2ABFBF",borderRadius:6,color:"#2ABFBF",fontSize:"0.62rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer",opacity:splitBusy?0.5:1}}>{splitBusy?"Reading boundaries…":"✂ AI split suggestions"}</button>}
+                  {splitSug&&splitSug.cuts.length===0&&<div style={{fontSize:"0.58rem",color:"#94A3B8",textAlign:"center"}}>No confident cut lines found in this piece.</div>}
+                  {splitSug&&splitSug.cuts.map((c,i)=>(
+                    <button key={i} onClick={()=>applySplit(c)} style={{width:"100%",marginTop:4,padding:"0.32rem",background:"rgba(42,191,191,0.12)",border:"1px solid #2ABFBF",borderRadius:6,color:"#7FE7E0",fontSize:"0.6rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>Apply cut {i+1} — {c.axis==="v"?"vertical":"horizontal"} @ {Math.round(c.pos*100)}%</button>
+                  ))}
+                  {splitSug&&<div onClick={()=>setSplitSug(null)} style={{fontSize:"0.55rem",color:"#64748B",marginTop:3,cursor:"pointer",textAlign:"center"}}>dismiss</div>}
+                </div>
+              )}
             </div>
             <div style={{marginBottom:"0.7rem"}}>
               <div style={{fontSize:"0.6rem",color:"#64748B",marginBottom:"0.3rem"}}>Name this group → applies to <b style={{color:"#94A3B8"}}>every page</b> + the Excel:</div>
