@@ -2411,9 +2411,18 @@ export default function BFSEstimator() {
         ];
         const FAM_KEYS={"acm":["acm","aluminum comp","alucobond","alpolic","reynobond"],"fiber cement":["fiber cement","hardie","fcp","fcl","fsh","fsv","board & batten","clapboard"],"nichiha":["nichiha","wood composite"],"trespa":["trespa","longboard"],"soffit":["soffit"],"lap":["lap","siding","shingle","cedar"],"insulation":["insulation","mineral wool"],"aluminum panel":["metal panel","metl","aluminum panel","alum wall"],"perforated":["perforated","perf "],"returns":["return"]};
         const famOf=cat=>{const c=(cat||"").toLowerCase();for(const f in FAM_KEYS){if(FAM_KEYS[f].some(k=>c.includes(k)))return f;}return null;};
+        /* market reference (median of ALL 190 submitted bids, won_vs_rest.py) + the
+           HEIGHT effect measured from 64 height-annotated lines: FC +$2 >=55ft,
+           ACM ~+$9 above 35ft (we apply half, conservatively, and label it). */
+        const REST_MED={"acm":45,"fiber cement":28,"nichiha":38,"trespa":42,"soffit":30,"insulation":8.5,"aluminum panel":41,"lap":32};
+        const HEIGHT_ADJ=(f,h)=>{if(!h)return 0;
+          if(f==="fiber cement"&&h>=55)return 2;
+          if(f==="acm"&&h>=35)return 4.5;
+          return 0;};
         const suggestRate=(cat,sf)=>{
           const f=famOf(cat);if(!f)return null;
           const gcNow=(bidGc.company||"").toLowerCase();
+          const hNow=parseFloat(bidGc.height)||0;
           let cands=WON_LINES.filter(l=>l.f===f);
           if(!cands.length&&(f==="aluminum panel"||f==="perforated"||f==="returns"))cands=WON_LINES.filter(l=>l.f==="acm");
           if(!cands.length)return null;
@@ -2425,7 +2434,10 @@ export default function BFSEstimator() {
           const tot=wl.reduce((s,x)=>s+x.w,0);
           const pick=p=>{let acc=0;for(const x of wl){acc+=x.w;if(acc>=p*tot)return x.r;}return wl[wl.length-1].r;};
           const gcHit=gcNow&&cands.some(l=>gcNow.includes(l.g.toLowerCase().split(" ")[0]));
-          return {lo:pick(0.25),med:pick(0.5),hi:pick(0.75),n:cands.length,gcHit,fam:f};
+          const hAdj=HEIGHT_ADJ(f,hNow);
+          const rnd=v=>Math.round(v*2)/2;
+          return {lo:rnd(pick(0.25)+hAdj),med:rnd(pick(0.5)+hAdj),hi:rnd(pick(0.75)+hAdj),
+                  n:cands.length,gcHit,fam:f,hAdj,market:REST_MED[f]||null};
         };
         return (
         <div style={{flex:1,overflowY:"auto",padding:"2rem"}}>
@@ -2465,9 +2477,10 @@ export default function BFSEstimator() {
                             style={{cursor:"pointer",padding:"0.1rem 0.3rem",borderRadius:4,fontSize:"0.52rem",fontWeight:800,
                                     background:strong?"#14A8A0":"rgba(20,168,160,0.1)",color:strong?"#fff":"#0E7A73",
                                     border:"1px solid "+(strong?"#14A8A0":"#7DDDD6"),marginLeft:3}}>${v}</span>);
-                        return <div style={{marginTop:3,whiteSpace:"nowrap"}} title={`from ${w.n} winning ${w.fam} lines${w.gcHit?" — incl. this GC's wins (weighted 3x)":""}; sized to this takeoff`}>
-                          <span style={{fontSize:"0.5rem",color:"#8FA3BC",fontWeight:700}}>won{w.gcHit?" @GC":""}:</span>
+                        return <div style={{marginTop:3,whiteSpace:"nowrap"}} title={`from ${w.n} winning ${w.fam} lines${w.gcHit?" — incl. this GC's wins (weighted 3x)":""}; sized to this takeoff${w.hAdj?`; +$${w.hAdj} tall-building adj (measured from height-annotated bids)`:""}${w.market?`; you typically BID $${w.market} in this family — wins happen at the buttons`:""}`}>
+                          <span style={{fontSize:"0.5rem",color:"#8FA3BC",fontWeight:700}}>won{w.gcHit?" @GC":""}{w.hAdj?` +${w.hAdj}h`:""}:</span>
                           {btn(w.lo,"low",false)}{btn(w.med,"suggested",true)}{btn(w.hi,"high",false)}
+                          {w.market&&w.market>w.hi&&<span style={{fontSize:"0.48rem",color:"#B5C4D6",marginLeft:4}} title="median of ALL your submitted bids in this family — the number that usually loses">mkt ${w.market}</span>}
                         </div>;})()}</div>
                     <div style={{textAlign:"right",fontWeight:700,color:"#122A45",fontVariantNumeric:"tabular-nums"}}>${Math.round(r.cost).toLocaleString()}</div>
                   </div>
@@ -2524,7 +2537,7 @@ export default function BFSEstimator() {
               <div style={{marginTop:"1rem",background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",padding:"0.9rem 1rem"}}>
                 <div style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:"0.55rem"}}>BFS Proposal — letterhead workbook</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0.45rem",marginBottom:"0.6rem"}}>
-                  {[["job_number","Job # (26-XXX)"],["contact","GC contact name"],["company","GC company"],["city","GC city, state"],["email","GC email"],["phone","GC phone"]].map(([k,ph])=>(
+                  {[["job_number","Job # (26-XXX)"],["contact","GC contact name"],["company","GC company"],["city","GC city, state"],["email","GC email"],["phone","GC phone"],["height","Bldg height ft (affects pricing)"]].map(([k,ph])=>(
                     <input key={k} value={bidGc[k]||""} onChange={e=>updBidGc(k,e.target.value)} placeholder={ph} style={{padding:"0.34rem 0.5rem",borderRadius:6,border:"1px solid #C3D2E4",fontSize:"0.68rem",fontFamily:"inherit",color:"#1E3A5F",minWidth:0}}/>
                   ))}
                 </div>
