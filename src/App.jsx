@@ -1672,7 +1672,7 @@ function QueueView({ onOpen }) {
         if (s.status === "done") {
           clearInterval(iv); delete pollingRef.current[jobId]; busyRef.current = false;
           patch(id, { status: "done", progress: 100, stage: "Complete",
-            results: { legend: s.legend || [], takeoffData: s.takeoffData || [], scheduleData: s.scheduleData || null, drawingSchedule: s.drawingSchedule || null, ocrMaterials: s.ocrMaterials || null, projName: (s.projName) || "", jobId } });
+            results: { legend: s.legend || [], takeoffData: s.takeoffData || [], scheduleData: s.scheduleData || null, drawingSchedule: s.drawingSchedule || null, ocrMaterials: s.ocrMaterials || null, pageCount: s.pageCount || 0, projName: (s.projName) || "", jobId } });
         } else if (s.status === "error") {
           clearInterval(iv); delete pollingRef.current[jobId]; busyRef.current = false;
           patch(id, { status: "error", error: s.error || "Analysis failed" });
@@ -1767,8 +1767,16 @@ function QueueView({ onOpen }) {
 }
 
 /* ── Manual takeoff: draw the facade, subtract cut-outs, get the area (Bluebeam-style) ── */
-function ManualView({ results, BACKEND }) {
-  const elevations = (results?.takeoffData || []).filter(e => e.pageNumber);
+function ManualView({ results, BACKEND, onCommit }) {
+  const detectedPages = (results?.takeoffData || []).filter(e => e.pageNumber);
+  // Photo/sparse sheets have no takeoffData entry, but the estimator still needs to open
+  // them, 2-point calibrate, and trace — so list EVERY pdf page (detected first, same order
+  // as before; undetected appended so a photo-only job isn't a dead end).
+  const _seenPg = new Set(detectedPages.map(e => e.pageNumber));
+  const _extraPages = [];
+  for (let p = 1; p <= (results?.pageCount || 0); p++)
+    if (!_seenPg.has(p)) _extraPages.push({ pageNumber: p, title: "Page " + p + " — trace manually", untraced: true });
+  const elevations = [...detectedPages, ..._extraPages];
   const [elevIdx, setElevIdx] = useState(0);
   const elev = elevations[elevIdx]; const pageNum = elev?.pageNumber;
   const [img, setImg] = useState(null);
@@ -1894,6 +1902,31 @@ function ManualView({ results, BACKEND }) {
   };
   const rename = (id, nm) => { edited.current = true; setShapes(prev => prev.map(s => s.id === id ? { ...s, name: nm } : s)); };
   const del = id => { edited.current = true; pushHist(); setShapes(prev => prev.filter(s => s.id !== id)); setSelId(null); };
+  // ── ADD-TO-BID (the photo-sheet money path): the estimator calibrated + traced, so these
+  // are HUMAN-CONFIRMED measurements — commit them as this page's takeoff zones so they
+  // count in the totals, the Budget and the Excel like any detected page. Explicit click
+  // only; replacing an existing page's zones asks first.
+  const pageHasZones = ((results?.takeoffData || []).find(e => e.pageNumber === pageNum)?.zones || []).some(z => (z.netArea || 0) > 0);
+  const _inPoly = (pt, poly) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { if ((poly[i][1] > pt[1]) !== (poly[j][1] > pt[1]) && pt[0] < (poly[j][0] - poly[i][0]) * (pt[1] - poly[i][1]) / ((poly[j][1] - poly[i][1]) || 1e-9) + poly[i][0]) c = !c; } return c; };
+  const commitPage = () => {
+    if (!calib || !onCommit) return;
+    if (pageHasZones && !window.confirm("This page already has takeoff zones. Replace them with your drawn shapes?")) return;
+    const adds = shapes.filter(s => s.type !== "cut");
+    const cuts = shapes.filter(s => s.type === "cut");
+    const zones = adds.map(s => {
+      let net = areaSF(s);
+      for (const c of cuts) {
+        const ccx = c.points.reduce((a, p) => a + p[0], 0) / c.points.length;
+        const ccy = c.points.reduce((a, p) => a + p[1], 0) / c.points.length;
+        if (_inPoly([ccx, ccy], s.points)) net -= areaSF(c);
+      }
+      const xs = s.points.map(p => p[0]), ys = s.points.map(p => p[1]);
+      const nm = colorNames[s.color] || s.name || "Cladding (drawn)";
+      return { materialName: nm, category: nm, netArea: Math.max(0, Math.round(net)),
+        x0pct: Math.min(...xs) * 100, x1pct: Math.max(...xs) * 100, y0pct: Math.min(...ys) * 100, y1pct: Math.max(...ys) * 100 };
+    }).filter(z => z.netArea > 0);
+    if (zones.length) onCommit(pageNum, zones, elev?.title);
+  };
   // Ctrl+Z / Ctrl+Y — undo an accidental click or shape (drew by accident = must be reversible)
   useEffect(() => {
     const onKey = e => {
@@ -1938,7 +1971,7 @@ function ManualView({ results, BACKEND }) {
     <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden", background: "linear-gradient(180deg,#F5F8FC,#E9F0F8)", fontFamily: "'Inter',system-ui,sans-serif" }}>
       <div style={{ width: 176, borderRight: "1px solid #E4EAF1", overflowY: "auto", flexShrink: 0, background: "#fff" }}>
         <div style={{ padding: "0.95rem", fontSize: "0.6rem", letterSpacing: "0.13em", color: "#94A3B8", textTransform: "uppercase", fontWeight: 700, borderBottom: "1px solid #EEF2F7" }}>Pages</div>
-        {elevations.map((e, i) => <div key={i} onClick={() => setElevIdx(i)} style={{ padding: "0.68rem 0.95rem", cursor: "pointer", borderBottom: "1px solid #F1F5F9", background: i === elevIdx ? "#EFF5FC" : "transparent", fontSize: "0.72rem", color: i === elevIdx ? "#0F2138" : "#64748B", fontWeight: i === elevIdx ? 600 : 500, borderLeft: i === elevIdx ? "3px solid #3F79BC" : "3px solid transparent" }}>{e.title || "Page " + e.pageNumber}</div>)}
+        {elevations.map((e, i) => <div key={i} onClick={() => setElevIdx(i)} style={{ padding: "0.68rem 0.95rem", cursor: "pointer", borderBottom: "1px solid #F1F5F9", background: i === elevIdx ? "#EFF5FC" : "transparent", fontSize: "0.72rem", color: i === elevIdx ? "#0F2138" : (e.untraced ? "#A8B4C4" : "#64748B"), fontStyle: e.untraced ? "italic" : "normal", fontWeight: i === elevIdx ? 600 : 500, borderLeft: i === elevIdx ? "3px solid #3F79BC" : "3px solid transparent" }}>{e.title || "Page " + e.pageNumber}</div>)}
       </div>
       <div ref={wrapRef} style={{ flex: 1, overflow: "auto", padding: "1.25rem" }}>
         <div style={{ fontSize: "0.64rem", color: "#64748B", marginBottom: "0.65rem" }}>
@@ -2015,6 +2048,11 @@ function ManualView({ results, BACKEND }) {
           <div style={{ fontSize: "0.58rem", color: "#15803D", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>Net total</div>
           <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "#15803D", letterSpacing: "-0.02em" }}>{Math.round(total).toLocaleString()} <span style={{ fontSize: "0.65rem", fontWeight: 500 }}>SF</span></div>
         </div>
+        {onCommit && calib && shapes.some(s => s.type !== "cut") && (
+          <button onClick={commitPage} style={{ width: "100%", marginTop: "0.7rem", padding: "0.62rem", borderRadius: 9, border: "none", background: "linear-gradient(180deg,#22A860,#16874B)", color: "#fff", fontSize: "0.7rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit", boxShadow: "0 6px 16px -5px rgba(21,128,61,0.5)" }}>
+            {pageHasZones ? "↻ Replace this page's takeoff with these shapes" : "＋ Add this page to the bid"}
+          </button>
+        )}
         <div style={{ fontSize: "0.58rem", color: "#94A3B8", marginTop: "0.65rem", lineHeight: 1.5 }}>{taught === "saved" ? "Learned from this drawing." : "The AI learns from your edits automatically — what you change here teaches it for next time."}</div>
       </div>
     </div>
@@ -2151,7 +2189,7 @@ export default function BFSEstimator() {
         if(data.phase)setPhase(data.phase);
         if(data.status==="done"){
           clearInterval(pollRef.current);
-          setResults({legend:data.legend||[],takeoffData:data.takeoffData||[],scheduleData:data.scheduleData||null,drawingSchedule:data.drawingSchedule||null,ocrMaterials:data.ocrMaterials||null,projName:file?.name?.replace(".pdf","")||"Project",jobId:id});
+          setResults({legend:data.legend||[],takeoffData:data.takeoffData||[],scheduleData:data.scheduleData||null,drawingSchedule:data.drawingSchedule||null,ocrMaterials:data.ocrMaterials||null,pageCount:data.pageCount||0,projName:file?.name?.replace(".pdf","")||"Project",jobId:id});
           setPhase("done");setProgress({label:"Complete",pct:100});
         }else if(data.status==="error"){clearInterval(pollRef.current);setErrMsg(data.error||"Unknown error");setPhase("error");}
       }catch(e){console.log("poll",e.message);}
@@ -2227,7 +2265,7 @@ export default function BFSEstimator() {
     if(!results)return;
     const id=results.jobId||String(Date.now());
     const rec={ id, projName:results.projName, savedAt:Date.now(),
-      data:{ legend:results.legend, takeoffData:results.takeoffData, scheduleData:results.scheduleData||null, drawingSchedule:results.drawingSchedule||null, ocrMaterials:results.ocrMaterials||null, projName:results.projName, jobId:results.jobId },
+      data:{ legend:results.legend, takeoffData:results.takeoffData, scheduleData:results.scheduleData||null, drawingSchedule:results.drawingSchedule||null, ocrMaterials:results.ocrMaterials||null, pageCount:results.pageCount||0, projName:results.projName, jobId:results.jobId },
       assignments, pricing, hiddenIds, deletedStack, groupRename, bucketShapes, bucketColorNames, scopeResult };
     try{ localStorage.setItem("bfs_bid_"+id, JSON.stringify(rec)); refreshSaved(); }
     catch(e){ alert("Could not save bid: "+e.message); }
@@ -2240,6 +2278,22 @@ export default function BFSEstimator() {
     setPhase("done"); setViewMode("table"); setFile(null);
   };
   const deleteBid=(id,ev)=>{ if(ev)ev.stopPropagation(); try{ localStorage.removeItem("bfs_bid_"+id); }catch{} refreshSaved(); };
+  // Draw tab → bid: the estimator explicitly committed calibrated, hand-traced shapes for a
+  // page (photo/sparse sheets the AI can't read). Human-confirmed = trusted SF.
+  const commitDrawnPage=(pageNumber,zones,title)=>{
+    setResults(prev=>{
+      if(!prev) return prev;
+      const td=[...(prev.takeoffData||[])];
+      const i=td.findIndex(e=>e.pageNumber===pageNumber);
+      if(i>=0) td[i]={...td[i],zones,scale:"2-point calibrated",scaleSource:"estimator draw",verifiedScale:true};
+      else td.push({ pageNumber, title:(title||"Page "+pageNumber).replace(/ — trace manually$/,"")+" (drawn)", sheetRef:"p"+pageNumber,
+        scale:"2-point calibrated", scaleSource:"estimator draw", verifiedScale:true, building:"Building",
+        zones, linearItems:[], autoTrim:[], flags:[], source:"draw" });
+      td.sort((a,b)=>(a.pageNumber||0)-(b.pageNumber||0));
+      return {...prev, takeoffData:td};
+    });
+    setAppTab("takeoff");
+  };
 
   // Walls the estimator bucket-added to fix AI misses — roll up by material so they COUNT
   // in the total, the Budget and the exports (additive: these walls aren't in zones/assignments).
@@ -2570,7 +2624,7 @@ export default function BFSEstimator() {
         </div>
       );})()}
       {appTab==="queue"&&<QueueView onOpen={openResult}/>}
-      {appTab==="manual"&&<ManualView results={results} BACKEND={BACKEND}/>}
+      {appTab==="manual"&&<ManualView results={results} BACKEND={BACKEND} onCommit={commitDrawnPage}/>}
 
       {appTab==="takeoff"&&(<>
 
@@ -2992,6 +3046,7 @@ export default function BFSEstimator() {
                     <div style={{fontSize:"2.2rem",marginBottom:"0.5rem"}}>🤔</div>
                     <div style={{fontSize:"1.05rem",fontWeight:800,color:"#0F172A",marginBottom:"0.4rem"}}>No measurable areas found on this drawing</div>
                     <div style={{fontSize:"0.82rem",color:"#64748B",lineHeight:1.7,maxWidth:520,margin:"0 auto"}}>The AI couldn't detect cladding on these pages and found no Bluebeam measurements to read. You can still measure it yourself: open the <b>Draw</b> tab, set the scale, and trace the walls.</div>
+                    <button onClick={()=>setAppTab("manual")} style={{marginTop:"1.1rem",padding:"0.6rem 1.4rem",borderRadius:9,border:"none",background:"linear-gradient(180deg,#5A92D2,#3F79BC)",color:"#fff",fontSize:"0.78rem",fontWeight:700,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 12px -3px rgba(74,134,200,0.5)"}}>Open Draw — calibrate &amp; trace ▸</button>
                   </div>
                 )}
                 {reviewElevs.length>0&&<div style={{fontSize:"0.72rem",letterSpacing:"0.1em",color:BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"1rem"}}>By elevation{reviewElevs.length>6?" · biggest first":""}</div>}
