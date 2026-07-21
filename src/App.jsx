@@ -755,15 +755,16 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
                 else if(zone.fill_color?.length===3){const[r,g,b]=zone.fill_color;color=`rgb(${Math.round(r*255)},${Math.round(g*255)},${Math.round(b*255)})`;}
                 const isSel=activeGroup&&gkey(zone)===activeGroup;
                 const dimmed=activeGroup&&!isSel;
+                const isSug=!!zone.suggest_only;   // AI suggestion: dashed, never counted until accepted
                 const pts=toSVGPoints(zone.points);
                 const lx=zone.cx*pageDims.width,ly=zone.cy*pageDims.height;
                 const showLabel=!dimmed&&(zone.area_sf||0)>0;   // every surface carries its SF — same black-pill style as bucket fills
-                const labelTxt=zone.source==="claude_vision"&&!a?zone.material_type:Math.round(zone.area_sf).toLocaleString()+" SF";
+                const labelTxt=isSug?("AI? "+Math.round(zone.area_sf).toLocaleString()+" SF"):(zone.source==="claude_vision"&&!a?zone.material_type:Math.round(zone.area_sf).toLocaleString()+" SF");
                 const pillW=Math.max(64,(labelTxt||"").length*(pageDims.width/130));
                 return <g key={zone.id} style={{cursor:(calibMode||bucketMode||splitMode)?"crosshair":"pointer",pointerEvents:groupMode?"none":"auto"}} onClick={e=>{if(calibMode||bucketMode||groupMode||splitMode)return;e.stopPropagation();const k=gkey(zone);setActiveGroup(activeGroup===k?null:k);}}>
                   {/* FLAT Bluebeam-style fill (the estimator's gold-standard look): solid color,
                       whisper outline — imperfect borders stop screaming, windows show as cutouts */}
-                  <polygon points={pts} fill={color} fillOpacity={dimmed?0.07:isSel?0.66:0.5} stroke={isSel?"#fff":color} strokeWidth={isSel?2.5:1} strokeOpacity={dimmed?0.2:isSel?1:0.45}/>
+                  <polygon points={pts} fill={isSug?"#2ABFBF":color} fillOpacity={isSug?(isSel?0.25:0.10):(dimmed?0.07:isSel?0.66:0.5)} stroke={isSug?"#2ABFBF":(isSel?"#fff":color)} strokeWidth={isSug?2:(isSel?2.5:1)} strokeOpacity={isSug?0.9:(dimmed?0.2:isSel?1:0.45)} strokeDasharray={isSug?pageDims.width/200+" "+pageDims.width/300:undefined}/>
                   {!dimmed&&(zone.holes||[]).map((hp,hi)=>(
                     <polygon key={"zh"+hi} points={toSVGPoints(hp)} fill="#FFFFFF" fillOpacity={0.85} stroke={color} strokeWidth={1} strokeOpacity={0.6} style={{pointerEvents:"none"}}/>
                   ))}
@@ -862,6 +863,21 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
                   {mp!==null&&mp<100&&<div style={{marginTop:3,color:"#7E93AD"}}>measured: this reader lands within 15% on <b style={{color:"#B9CBDE"}}>{mp}%</b> of 4,230 benchmark walls blind — your confirm makes it exact</div>}
                 </div>;
               })()}
+              {selectedZones.length>0&&selectedZones.every(z=>z.suggest_only)&&(
+                <button onClick={async()=>{
+                  for(const z of selectedZones){
+                    try{
+                      const r=await fetch(BACKEND+"/accept-suggestion",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page:pageNum,pieceId:z.id})});
+                      if(r.ok){
+                        const d=await r.json();
+                        setPagePolygons(prev=>prev.map(p=>p.id===z.id?{...p,suggest_only:false,material:"AI wall (accepted)",category:"AI wall (accepted)",group:"AI wall (accepted)"}:p));
+                        setResults(prev=>({...prev,takeoffData:(prev.takeoffData||[]).map(e=>e.pageNumber===pageNum?{...e,zones:d.zones}:e)}));
+                      }
+                    }catch(e){}
+                  }
+                  setActiveGroup(null);
+                }} style={{width:"100%",marginTop:6,padding:"0.55rem",background:"#2ABFBF",color:"#06283D",border:"none",borderRadius:8,fontSize:"0.72rem",fontWeight:800,fontFamily:"inherit",cursor:"pointer",boxShadow:"0 2px 8px rgba(42,191,191,0.35)"}}>➕ Accept {selectedZones.length} AI wall{selectedZones.length>1?"s":""} into takeoff — adds {Math.round(selectedZones.reduce((s,z)=>s+(z.area_sf||0),0)).toLocaleString()} SF</button>
+              )}
               {selectedZones.length>0&&(
                 <div style={{marginTop:6}}>
                   {!splitSug&&<button onClick={suggestSplits} disabled={splitBusy} style={{width:"100%",padding:"0.35rem",background:"transparent",border:"1px dashed #2ABFBF",borderRadius:6,color:"#2ABFBF",fontSize:"0.62rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer",opacity:splitBusy?0.5:1}}>{splitBusy?"Reading boundaries…":"✂ AI split suggestions"}</button>}
