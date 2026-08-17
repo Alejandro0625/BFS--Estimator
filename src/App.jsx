@@ -371,6 +371,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   const [curBucketColor, setCurBucketColor] = useState("#22D3EE");
   const [cornerMode, setCornerMode] = useState(false);   // fallback when a bucket click "leaks"
   const [cornerPts, setCornerPts] = useState([]);
+  const [lastAddMat, setLastAddMat] = useState("");      // reused for consecutive corner adds
   // bucketShapes is LIFTED to the app (props) so bucket-added walls flow into the bid & persist
   const [snapMsg, setSnapMsg] = useState("");
   const [snapBusy, setSnapBusy] = useState(false);
@@ -386,16 +387,30 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   // just deleted leaves the queue at once. It books nothing: confirming marks a row done and
   // changes no SF, no total and no export — identity by default.
   const [rail, setRail] = useState("elev");                 // left rail: elevations | queue
-  const [queue, setQueue] = useState({status:"idle",zones:[],pages:[],table:null,err:""});
+  const [queue, setQueue] = useState({status:"idle",zones:[],pages:[],table:null,suggestions:null,err:""});
   const [qIdx, setQIdx] = useState(null);                   // position while walking the queue
   const [activeMat, setActiveMat] = useState(null);         // {page, materialName} in focus
+  const [openPieces, setOpenPieces] = useState(false);      // walker: expand a row into its walls
   // Suggestions (STEP 3 surface): pieces the engine drew but deliberately did NOT count.
-  // They live on /polygons per page, never in zones — so finding them means scanning pages.
+  // They used to be found by walking /polygons page by page; /review-queue now hands the
+  // whole index over in the payload that ranks the queue. The scan survives ONLY as the
+  // fallback for a backend that predates the index.
   const [sugScan, setSugScan] = useState({status:"idle",done:0,total:0,items:[],err:""});
   const [acceptBusy, setAcceptBusy] = useState(null);
+  // Her NET, per zone (STEP 4). The machine's draft is shown struck through beside it.
+  const [netDraft, setNetDraft] = useState("");             // the field's text while she types
+  const [netBusy, setNetBusy] = useState(false);
+  const [netMsg, setNetMsg] = useState("");
+  const netSkipBlur = useRef(false);                        // enter/escape already decided
   // Bluebeam-style corner snap for the bucket's corner fallback (the <10s "add a missed wall")
   const [snapPts, setSnapPts] = useState([]);
   const [hoverSnap, setHoverSnap] = useState(null);
+  // DETAIL TIER. The sheet-wide corner set uses Lmin = 6% of the LONG SIDE of a D-size
+  // sheet, i.e. "structural, not detail noise" — which is exactly why a 2-foot frieze has
+  // no corners to snap to and cannot be traced. `?rect=` re-measures that same 6% rule
+  // against the VIEWPORT, so the corners appear as she works close in. Merged with the
+  // sheet set, never replacing it: zooming out must not lose the building outline.
+  const [detailSnaps, setDetailSnaps] = useState([]);
   // hiddenIds / deletedStack are LIFTED to the parent so deletes save + restore with the bid
   const imgRef = useRef();
   const svgRef = useRef();
@@ -416,10 +431,21 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
       .catch(()=>{});
     setPageImage(withKey(BACKEND+"/page-image/"+results.jobId+"/"+pageNum));
     // the drawing's real CAD corners — the bucket's corner fallback snaps to these
-    setSnapPts([]); setHoverSnap(null);
+    setSnapPts([]); setHoverSnap(null); setDetailSnaps([]);
     fetch(BACKEND+"/snap-points/"+results.jobId+"/"+pageNum)
       .then(r=>r.ok?r.json():{points:[]}).then(d=>setSnapPts(d.points||[])).catch(()=>setSnapPts([]));
   }, [elevIdx, pageNum, results.jobId, BACKEND]);
+
+  // the detail tier, on demand. Clamped to the sheet and never fatal: if it fails the
+  // sheet-wide corners are still there and the snap works exactly as it did before.
+  const loadDetailSnaps = useCallback((rect)=>{
+    if(!results.jobId||!pageNum||!Array.isArray(rect)) return;
+    const c=v=>Math.min(1,Math.max(0,v));
+    const q=[c(rect[0]),c(rect[1]),c(rect[2]),c(rect[3])];
+    if(q[2]-q[0]<=0.004||q[3]-q[1]<=0.004) return;
+    fetch(BACKEND+"/snap-points/"+results.jobId+"/"+pageNum+"?rect="+q.map(v=>v.toFixed(5)).join(","))
+      .then(r=>r.ok?r.json():{points:[]}).then(d=>setDetailSnaps(d.points||[])).catch(()=>{});
+  },[BACKEND,results.jobId,pageNum]);
 
   // ── the ranking. Fetched from the server, which OWNS the order (review_rank.order_zones).
   // A failure here is visible and harmless: the rail falls back to the Elevations list and
@@ -429,11 +455,18 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     setQueue(q=>({...q,status:q.status==="ok"?"ok":"loading",err:""}));
     return fetch(BACKEND+"/review-queue/"+results.jobId)
       .then(r=>r.ok?r.json():Promise.reject(new Error("HTTP "+r.status)))
-      .then(d=>setQueue({status:"ok",zones:d.zones||[],pages:d.pages||[],table:d.table||null,err:""}))
-      .catch(e=>setQueue({status:"err",zones:[],pages:[],table:null,err:String(e&&e.message||e)}));
-  },[BACKEND,results.jobId]);
+      .then(d=>{
+        setQueue({status:"ok",zones:d.zones||[],pages:d.pages||[],table:d.table||null,
+                  suggestions:d.suggestions||null,err:""});
+        // review progress lives on the JOB now, not in this tab. Whatever the server
+        // remembers wins on load — that is what makes a reload (or a second device, or
+        // tomorrow morning) resume the walk instead of restarting the hour.
+        if(d.reviewConfirmed) setReviewConfirmed(d.reviewConfirmed);
+      })
+      .catch(e=>setQueue({status:"err",zones:[],pages:[],table:null,suggestions:null,err:String(e&&e.message||e)}));
+  },[BACKEND,results.jobId,setReviewConfirmed]);
   useEffect(()=>{ loadQueue(); },[loadQueue]);
-  useEffect(()=>{ setQIdx(null); setActiveMat(null); setRail("elev");
+  useEffect(()=>{ setQIdx(null); setActiveMat(null); setRail("elev"); setOpenPieces(false);
     setSugScan({status:"idle",done:0,total:0,items:[],err:""}); },[results.jobId]);
 
   // ✂ v13 boundary cut suggestions for the selected piece (one at a time)
@@ -643,6 +676,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     const tol=12;
     let best=null,bd=tol;
     for(const c of snapPts){ const d=Math.hypot((c[0]-p.x)*W,(c[1]-p.y)*H); if(d<bd){bd=d;best=c;} }
+    for(const c of detailSnaps){ const d=Math.hypot((c[0]-p.x)*W,(c[1]-p.y)*H); if(d<bd){bd=d;best=c;} }
     if(best) return {x:best[0],y:best[1],kind:"corner"};
     const prev=cornerPts.length?cornerPts[cornerPts.length-1]:null;
     if(prev){
@@ -658,7 +692,12 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     if(splitMode&&!snapBusy){ const p=getSvgPoint(evt); if(p) doSplit(p); return; }
     if(!bucketMode||snapBusy) return;
     const p=getSvgPoint(evt); if(!p) return;
-    if(cornerMode){ const s=snapEval(p); setCornerPts(prev=>[...prev,s?{x:s.x,y:s.y}:p]); return; }
+    if(cornerMode){
+      const s=snapEval(p);
+      // the FIRST corner tells us where she is working — pull that viewport's corners in
+      if(cornerPts.length===0) loadDetailSnaps([p.x-0.10,p.y-0.10,p.x+0.10,p.y+0.10]);
+      setCornerPts(prev=>[...prev,s?{x:s.x,y:s.y}:p]); return;
+    }
     doBucket(p);
   };
   const addBucketShape=(points,area_sf,extra={})=>{
@@ -721,14 +760,28 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     try{
       const r=await fetch(BACKEND+"/snap-fill",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page:pageNum,corners:cornerPts.map(c=>[c.x,c.y])})}).then(r=>r.json());
       if(r.status==="ok"){
-        addBucketShape(r.points,r.area_sf,{gross_sf:r.gross_sf,opening_sf:r.opening_sf||0,openings:r.openings||[],openings_review:!!r.openings_review});
-        setSnapMsg((r.opening_sf>0?`✓ ${Math.round(r.area_sf).toLocaleString()} SF net (−${Math.round(r.opening_sf).toLocaleString()} openings — tap ✕ on any to undo)`:`✓ ${Math.round(r.area_sf).toLocaleString()} SF`)+(r.openings_review?" ⚠ check deductions":""));
+        // REUSE THE LAST MATERIAL. Missed trims come in runs — a frieze on every elevation,
+        // a band on every wing — and re-typing the name for each one is most of the cost of
+        // adding it. The name carries to the next add until she changes it.
+        const mat=(lastAddMat||bucketColorNames[curBucketColor]||"").trim();
+        addBucketShape(r.points,r.area_sf,{gross_sf:r.gross_sf,opening_sf:r.opening_sf||0,openings:r.openings||[],openings_review:!!r.openings_review,
+                                           material:mat,color:curBucketColor});
+        setSnapMsg((r.opening_sf>0?`✓ ${Math.round(r.area_sf).toLocaleString()} SF net (−${Math.round(r.opening_sf).toLocaleString()} openings — tap ✕ on any to undo)`:`✓ ${Math.round(r.area_sf).toLocaleString()} SF`)+(mat?` · ${mat}`:"")+(r.openings_review?" ⚠ check deductions":"")+" · press a to add another");
       }
       else setSnapMsg("Couldn't snap those corners");
     }catch(e){ setSnapMsg("Snap failed"); }
     setCornerMode(false); setCornerPts([]); setSnapBusy(false);
   };
-  const cancelCorners=()=>{ setCornerMode(false); setCornerPts([]); setSnapMsg(""); };
+  const cancelCorners=()=>{ setCornerMode(false); setCornerPts([]); setSnapMsg(""); setDetailSnaps([]); };
+  // ⊹ ADD A WALL BY CORNERS — first class, not a leak fallback. 869 of the walls she books
+  // (246k SF, r4_truly_missed_partition) have NO engine ink on them at all: small trims and
+  // friezes the readers were never going to find. That population is not a detection
+  // problem to solve, it is a <10s click to make cheap.
+  const startCornerAdd=()=>{
+    setBucketMode(true); setCornerMode(true); setCornerPts([]);
+    setSplitMode(false); setGroupMode(false); setCalibMode(false); setDetailSnaps([]);
+    setSnapMsg("Click each corner (peaks too) — enter finishes, esc cancels"+(lastAddMat?` · will be named ${lastAddMat}`:""));
+  };
   const removeBucketShape=id=>setBucketShapes(prev=>prev.filter(s=>s.id!==id));
   const setBucketMaterial=(id,mat)=>setBucketShapes(prev=>prev.map(s=>s.id===id?{...s,material:mat}:s));
   // on blur/Enter: naming one shape names every UNNAMED shape with the SAME PATTERN
@@ -773,7 +826,12 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     const e=(results.takeoffData||[]).find(x=>x.pageNumber===page);
     return (e?.zones||[]).find(z=>z.materialName===name||z.material_group===name)||null;
   };
-  const qkey = r => r.page+"::"+r.materialName;
+  // ⭐ THE KEY IS THE SERVER'S. `/review-confirm` stores "<page>|<materialName>" and
+  // /review-queue hands the same map back, so the tab and the job cannot disagree about
+  // what has been reviewed. (Jobs saved before this shipped carry the old "page::name"
+  // keys and simply read as unconfirmed once — progress restarts, nothing is lost.)
+  const qkey = r => r.page+"|"+r.materialName;
+  const pkey = (r,pid) => qkey(r)+"|#"+pid;
   // Rows the server ranked, minus anything she has already removed from the takeoff. Zones
   // that appeared AFTER the fetch (an accepted suggestion) are appended by their own
   // server-stamped reviewRank — the frontend never invents a rank.
@@ -784,13 +842,22 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   const queueRows = queue.status!=="ok" ? [] : (queue.zones||[]).map(r=>{
     seenQ[qkey(r)]=1;
     const z=liveZone(r.page,r.materialName);
-    return z ? {...r, netArea:z.netArea||0, live:true} : null;
+    // the LIVE zone owns the numbers (an accepted suggestion, a park, or her own net all
+    // land there first); the server row owns the ranking, the pieces and the zone key
+    return z ? {...r, netArea:z.netArea||0, grossArea:z.grossArea,
+                netAreaAuto:z.netAreaAuto, netOverride:!!z.netOverride, live:true} : null;
   }).filter(Boolean).filter(r=>(r.netArea||0)>0);
   if(queue.status==="ok") (results.takeoffData||[]).forEach(e=>{ (e.zones||[]).forEach(z=>{
-    const k=e.pageNumber+"::"+z.materialName;
+    // ⚠ THE SAME KEY the server's rows were marked with. It used to be spelled "::" in
+    // both places; now that qkey() is the SERVER's key, spelling it by hand here would
+    // never match and every ranked row would ALSO be appended as an "added" one —
+    // the queue would silently double and every SF in it be counted twice.
+    const k=qkey({page:e.pageNumber,materialName:z.materialName});
     if(seenQ[k]||!(z.netArea>0)) return;
     seenQ[k]=1;
     queueRows.push({page:e.pageNumber,materialName:z.materialName,netArea:z.netArea,
+      zoneKey:z.material_group||z.materialName,pieces:[],pieceCount:0,
+      grossArea:z.grossArea,netAreaAuto:z.netAreaAuto,netOverride:!!z.netOverride,
       readerClass:z.readerClass,reader:z.reader,reviewRank:z.reviewRank,reviewRisk:z.reviewRisk,
       reviewRate:z.reviewRate,reviewWhy:z.reviewWhy,live:true,added:true});
   }); });
@@ -800,19 +867,59 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     const r=queueRows[i]; if(!r) return;
     setQIdx(i); setActiveGroup(null); setSplitSug(null);
     setActiveMat({page:r.page,materialName:r.materialName});
+    setNetDraft(""); setNetMsg(""); setOpenPieces(false);   // the field belongs to THIS row
     const ei=pageToElev[r.page];
     if(ei!==undefined&&ei!==elevIdx) setElevIdx(ei);
   };
   const stepQueue = (d)=>{ if(!queueRows.length) return; const n=Math.min(queueRows.length-1,Math.max(0,(qIdx==null?-1:qIdx)+d)); jumpTo(n); };
   // CONFIRM BOOKS NOTHING. It records "a human looked at this region" and moves on — no SF,
   // no total, no export changes. That is what lets the queue ship without a gate.
+  // It now goes to the SERVER (/review-confirm) instead of dying with the tab: the walk is
+  // the product's core loop and its progress belongs to the job. Optimistic locally, then
+  // reconciled with whatever the server says it holds — if the call fails the tick reverts
+  // rather than lying about work that was never recorded.
+  const postConfirm = (key, page, materialName, confirmed, pieceId)=>{
+    const body={jobId:results.jobId,page,materialName,confirmed};
+    if(pieceId!==undefined&&pieceId!==null) body.pieceId=pieceId;
+    setReviewConfirmed(prev=>{ const n={...prev};
+      if(confirmed) n[key]={at:Date.now()}; else delete n[key]; return n; });
+    fetch(BACKEND+"/review-confirm",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
+      .then(r=>r.ok?r.json():Promise.reject(new Error("HTTP "+r.status)))
+      .then(d=>{ if(d&&d.reviewConfirmed) setReviewConfirmed(d.reviewConfirmed); })
+      .catch(()=>setReviewConfirmed(prev=>{ const n={...prev};
+        if(confirmed) delete n[key]; else n[key]={at:Date.now()}; return n; }));
+  };
   const confirmRow = (i)=>{
     const r=queueRows[i]; if(!r) return;
-    setReviewConfirmed(prev=>({...prev,[qkey(r)]:{at:Date.now(),sf:r.netArea,reader:r.readerClass||null}}));
+    postConfirm(qkey(r), r.page, r.materialName, true);
     if(i<queueRows.length-1) jumpTo(i+1); else { setQIdx(null); setActiveMat(null); }
   };
   const unconfirmRow = (i)=>{ const r=queueRows[i]; if(!r) return;
-    setReviewConfirmed(prev=>{ const n={...prev}; delete n[qkey(r)]; return n; }); };
+    postConfirm(qkey(r), r.page, r.materialName, false); };
+  const togglePiece = (r,pid)=>{
+    const k=pkey(r,pid);
+    postConfirm(k, r.page, r.materialName, !reviewConfirmed[k], pid);
+  };
+  // ── HER NET IS THE DELIVERED NUMBER (STEP 4). One field, on the region she is already
+  // looking at. Nothing here computes or proposes a net: the machine's draft is shown
+  // struck through beside her number, and clearing the field restores it exactly.
+  const saveNet = async(r,val)=>{
+    if(!r) return;
+    const raw=String(val==null?"":val).replace(/[, ]/g,"").trim();
+    const net=raw===""?null:Number(raw);
+    if(net!==null&&(!isFinite(net)||net<0)){ setNetMsg("Enter a number ≥ 0, or clear it to go back to the drawn SF"); return; }
+    setNetBusy(true); setNetMsg("");
+    try{
+      const res=await fetch(BACKEND+"/set-net",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({jobId:results.jobId,page:r.page,zoneKey:r.zoneKey||r.materialName,net})});
+      if(!res.ok) throw new Error("HTTP "+res.status);
+      const d=await res.json();
+      if(setResults&&d.takeoffData) setResults(prev=>({...prev,takeoffData:d.takeoffData}));
+      setNetMsg(net===null?"↩ back to the drawn SF":"✓ your number is the one that ships");
+      loadQueue();
+    }catch(e){ setNetMsg("Couldn't save that — check connection"); }
+    setNetBusy(false);
+  };
   // The queue is LIVE: parking a group (scope gate), deleting a junk region or accepting a
   // suggestion all change how many rows there are underneath the walker. Two invariants, so
   // the position can never point at a row that no longer exists:
@@ -828,12 +935,35 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   // region in focus on THIS page (the queue row's pieces)
   const matSelName = (activeMat && activeMat.page===pageNum) ? activeMat.materialName : null;
   const matSelZones = matSelName ? displayZones.filter(z=>!z.suggest_only&&matKeyOf(z)===matSelName) : [];
-  // keyboard walk — only while a row is in focus and never while typing in a field
+  // When the walker parks on a region, pre-load the CLOSE-IN corners around it: by the time
+  // she decides the engine missed the trim beside it, `a` already has geometry to snap to.
+  const matSelSig = matSelName ? matSelName+"@"+pageNum+"#"+matSelZones.length : "";
   useEffect(()=>{
-    if(qIdx==null) return;
+    if(!matSelName||!matSelZones.length) return;
+    let x0=1,y0=1,x1=0,y1=0;
+    matSelZones.forEach(z=>(z.points||[]).forEach(([x,y])=>{
+      if(x<x0)x0=x; if(y<y0)y0=y; if(x>x1)x1=x; if(y>y1)y1=y; }));
+    if(x1<=x0||y1<=y0) return;
+    const px=Math.max(0.02,(x1-x0)*0.25), py=Math.max(0.02,(y1-y0)*0.25);
+    loadDetailSnaps([x0-px,y0-py,x1+px,y1+py]);
+  },[matSelSig]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // KEYBOARD. Never while typing in a field (the net field is an input, so Enter there
+  // saves her number and never confirms a row behind her back). Corner-adding OWNS enter
+  // and escape while it is running — finishing the wall she is drawing always beats
+  // confirming the row underneath it.
+  useEffect(()=>{
     const onKey=e=>{
       const t=e.target&&e.target.tagName;
       if(t==="INPUT"||t==="TEXTAREA"||t==="SELECT"||(e.target&&e.target.isContentEditable)) return;
+      if(e.metaKey||e.ctrlKey||e.altKey) return;
+      if(cornerMode){
+        if(e.key==="Enter"){ e.preventDefault(); if(cornerPts.length>=3) finishCorners(); return; }
+        if(e.key==="Escape"){ e.preventDefault(); cancelCorners(); return; }
+      }
+      if(e.key==="a"||e.key==="A"){ e.preventDefault(); cornerMode?cancelCorners():startCornerAdd(); return; }
+      if(e.key==="b"||e.key==="B"){ e.preventDefault();
+        setBucketMode(m=>!m); setCornerMode(false); setCornerPts([]); setSplitMode(false); setCalibMode(false); return; }
+      if(qIdx==null) return;
       if(e.key==="ArrowDown"||e.key==="n"){ e.preventDefault(); stepQueue(1); }
       else if(e.key==="ArrowUp"||e.key==="p"){ e.preventDefault(); stepQueue(-1); }
       else if(e.key==="c"||e.key==="Enter"){ e.preventDefault(); confirmRow(qIdx); }
@@ -865,11 +995,19 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   // Ranked by the SERVER'S risk order (queue.table.order) — the same measured ordering the
   // region queue uses. No order = no claim: they fall back to biggest-first.
   const sugOrder = (queue.table&&queue.table.order)||null;
-  const sugItems = [...(sugScan.items||[])].sort((a,b)=>{
-    const ra=sugOrder?(sugOrder.indexOf(a.cls)<0?-1:sugOrder.indexOf(a.cls)):0;
-    const rb=sugOrder?(sugOrder.indexOf(b.cls)<0?-1:sugOrder.indexOf(b.cls)):0;
-    return ra-rb||(b.area_sf||0)-(a.area_sf||0);
-  });
+  // ⭐ THE INDEX. /review-queue now returns every suggest_only piece in the job, already
+  // ranked, in the payload that ranks the queue — so the whole list is there the moment the
+  // rail opens instead of behind an opt-in walk of one /polygons request per page. The scan
+  // stays as the fallback for a backend older than the index (`suggestions == null`).
+  const sugFromIndex = Array.isArray(queue.suggestions);
+  const sugItems = sugFromIndex
+    ? queue.suggestions.map(s=>({page:s.page,id:s.id,area_sf:s.sf,cls:s.readerClass,cx:s.cx,cy:s.cy}))
+        .filter(s=>(s.area_sf||0)>0&&!hiddenIds[s.page+":"+s.id])
+    : [...(sugScan.items||[])].sort((a,b)=>{
+        const ra=sugOrder?(sugOrder.indexOf(a.cls)<0?-1:sugOrder.indexOf(a.cls)):0;
+        const rb=sugOrder?(sugOrder.indexOf(b.cls)<0?-1:sugOrder.indexOf(b.cls)):0;
+        return ra-rb||(b.area_sf||0)-(a.area_sf||0);
+      });
   const pageSugs = displayZones.filter(z=>z.suggest_only);
   const acceptSuggestion = async(page,pieceId)=>{
     setAcceptBusy(page+":"+pieceId);
@@ -880,6 +1018,9 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
         if(page===pageNum) setPagePolygons(prev=>prev.map(p=>p.id===pieceId?{...p,suggest_only:false,material:"AI wall (accepted)",category:"AI wall (accepted)",group:"AI wall (accepted)"}:p));
         if(setResults) setResults(prev=>({...prev,takeoffData:(prev.takeoffData||[]).map(e=>e.pageNumber===page?{...e,zones:d.zones}:e)}));
         setSugScan(s=>({...s,items:(s.items||[]).filter(x=>!(x.page===page&&x.id===pieceId))}));
+        // the accepted piece keeps the RISK of the reader that drew it — the server hands
+        // that class back so the confirmation line can say which reader she just trusted
+        if(d.readerClass) setSnapMsg(`✓ added ${Math.round(d.accepted_sf||0).toLocaleString()} SF · ${readerLabel(d.readerClass)}`);
         loadQueue();
       }
     }catch(e){}
@@ -959,9 +1100,9 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
             <div style={{padding:"0.7rem 0.875rem",borderTop:"2px solid "+NAVY_LT,marginTop:"0.4rem"}}>
               <div style={{fontSize:"0.6rem",letterSpacing:"0.1em",color:"#2ABFBF",textTransform:"uppercase",fontWeight:800}}>AI suggestions</div>
               <div style={{fontSize:"0.56rem",color:"#64748B",marginTop:3,lineHeight:1.5}}>Walls the engine drew but did NOT count. Nothing here is in your total until you accept it.</div>
-              {sugScan.status==="idle"&&<button onClick={scanSuggestions} style={{width:"100%",marginTop:7,padding:"0.4rem",borderRadius:7,border:"1px dashed "+TEAL,background:"transparent",color:TEAL,fontSize:"0.63rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>Find suggestions on all {elevations.length} page{elevations.length===1?"":"s"}</button>}
-              {sugScan.status==="running"&&<div style={{marginTop:7,fontSize:"0.62rem",color:"#94A3B8"}}>Scanning page {sugScan.done} of {sugScan.total}…</div>}
-              {sugScan.status==="ok"&&sugItems.length===0&&<div style={{marginTop:7,fontSize:"0.62rem",color:"#64748B",lineHeight:1.5}}>None on this job. Suggestions run on raster/photo elevations only today — vector sheets get none (see the note in the report).</div>}
+              {!sugFromIndex&&sugScan.status==="idle"&&<button onClick={scanSuggestions} style={{width:"100%",marginTop:7,padding:"0.4rem",borderRadius:7,border:"1px dashed "+TEAL,background:"transparent",color:TEAL,fontSize:"0.63rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>Find suggestions on all {elevations.length} page{elevations.length===1?"":"s"}</button>}
+              {!sugFromIndex&&sugScan.status==="running"&&<div style={{marginTop:7,fontSize:"0.62rem",color:"#94A3B8"}}>Scanning page {sugScan.done} of {sugScan.total}…</div>}
+              {sugItems.length===0&&(sugFromIndex||sugScan.status==="ok")&&<div style={{marginTop:7,fontSize:"0.62rem",color:"#64748B",lineHeight:1.5}}>None on this job. Nothing on these sheets read as an uncounted wall — if you can see one the engine missed, add it with <b style={{color:"#8FA7C0"}}>⊹ Add wall</b> on the drawing (or press <b style={{color:"#8FA7C0"}}>a</b>).</div>}
               {sugItems.length>0&&<>
                 <div style={{margin:"7px 0 4px",fontSize:"0.6rem",color:"#7FE7E0",fontWeight:700}}>{sugItems.length} suggested · {Math.round(sugItems.reduce((s,x)=>s+(x.area_sf||0),0)).toLocaleString()} SF available</div>
                 {sugItems.map(s=>{
@@ -987,16 +1128,57 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
           return <div style={{alignSelf:"stretch",display:"flex",alignItems:"center",gap:"0.7rem",flexWrap:"wrap",padding:"0.55rem 0.85rem",borderRadius:10,background:"linear-gradient(90deg,#12283F,#16324D)",border:"1px solid "+TEAL+"55"}}>
             <span style={{fontSize:"0.6rem",color:"#7FE7E0",fontWeight:800,letterSpacing:"0.06em"}}>REVIEW {qIdx+1}/{queueRows.length}</span>
             <span style={{fontSize:"0.5rem",fontWeight:800,color:fg,background:bg,borderRadius:4,padding:"0.1rem 0.35rem"}}>{lab}</span>
-            <span style={{fontSize:"0.78rem",fontWeight:800,color:"#fff"}}>{Math.round(r.netArea||0).toLocaleString()} SF</span>
+            {r.netOverride
+              ? <span style={{display:"flex",alignItems:"baseline",gap:"0.3rem"}}>
+                  <span style={{fontSize:"0.62rem",color:"#64748B",textDecoration:"line-through"}}>{Math.round(r.netAreaAuto||0).toLocaleString()}</span>
+                  <span style={{fontSize:"0.78rem",fontWeight:800,color:"#4ADE80"}}>{Math.round(r.netArea||0).toLocaleString()} SF</span>
+                </span>
+              : <span style={{fontSize:"0.78rem",fontWeight:800,color:"#fff"}}>{Math.round(r.netArea||0).toLocaleString()} SF</span>}
             <span style={{fontSize:"0.68rem",color:"#CBD5E1",maxWidth:260,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{dispName(r.materialName)}</span>
             <span style={{fontSize:"0.58rem",color:"#8FA7C0"}}>p.{r.page} · {readerLabel(r.readerClass)}{offPage?" · not in the elevation list — open it from Draw":""}</span>
+            {/* ── HER NET. The drawn number is the DRAFT; this field is the delivered one. ── */}
+            <span style={{display:"flex",alignItems:"center",gap:"0.28rem",padding:"0.1rem 0.4rem",borderRadius:20,background:"#0E2136",border:"1px solid "+(r.netOverride?"#15803D":"#2D5280")}}>
+              <span style={{fontSize:"0.55rem",color:"#7FB0E0",letterSpacing:"0.05em",fontWeight:700}}>NET</span>
+              <input value={netDraft!==""?netDraft:(r.netOverride?String(Math.round(r.netArea||0)):"")}
+                onChange={e=>setNetDraft(e.target.value)}
+                onKeyDown={e=>{ if(e.key==="Enter"){e.preventDefault();e.stopPropagation();netSkipBlur.current=true;saveNet(r,e.target.value);e.target.blur();}
+                                // escape ABANDONS the edit — the blur it causes must not save
+                                // the text she just discarded (blur reads the DOM, which the
+                                // setState above has not repainted yet)
+                                if(e.key==="Escape"){e.preventDefault();e.stopPropagation();netSkipBlur.current=true;setNetDraft("");e.target.blur();} }}
+                onBlur={e=>{ if(netSkipBlur.current){ netSkipBlur.current=false; return; }
+                             const v=e.target.value; if(v!==(r.netOverride?String(Math.round(r.netArea||0)):"")) saveNet(r,v); }}
+                placeholder={String(Math.round(r.netAreaAuto??r.netArea??0))}
+                title="Openings-deducted SF. Blank = use the drawn number. Nothing is suggested here — this is your number."
+                style={{width:66,padding:"0.16rem 0.3rem",borderRadius:5,border:"none",background:"#16324D",color:r.netOverride?"#86EFAC":"#E2E8F0",fontSize:"0.68rem",fontWeight:700,fontFamily:"inherit",textAlign:"right"}}/>
+              {r.netOverride&&<button onClick={()=>{setNetDraft("");saveNet(r,"");}} title="back to the drawn SF" style={{border:"none",background:"transparent",color:"#64748B",cursor:"pointer",fontSize:"0.62rem",padding:0}}>↩</button>}
+              {netBusy&&<span style={{fontSize:"0.55rem",color:"#64748B"}}>…</span>}
+            </span>
             <div style={{marginLeft:"auto",display:"flex",gap:"0.35rem",alignItems:"center"}}>
               <button onClick={()=>stepQueue(-1)} disabled={qIdx===0} style={{padding:"0.28rem 0.5rem",borderRadius:6,border:"1px solid #2D5280",background:NAVY_LT,color:qIdx===0?"#475569":"#94A3B8",fontSize:"0.62rem",fontFamily:"inherit",cursor:qIdx===0?"default":"pointer"}}>◂</button>
               <button onClick={()=>done?unconfirmRow(qIdx):confirmRow(qIdx)} style={{padding:"0.32rem 0.8rem",borderRadius:7,border:"none",background:done?"#14532D":"linear-gradient(180deg,#34D399,#10B981)",color:done?"#86EFAC":"#06283D",fontSize:"0.66rem",fontWeight:800,fontFamily:"inherit",cursor:"pointer"}}>{done?"✓ confirmed — undo":"✓ Confirm & next"}</button>
               <button onClick={()=>stepQueue(1)} disabled={qIdx>=queueRows.length-1} style={{padding:"0.28rem 0.55rem",borderRadius:6,border:"1px solid #2D5280",background:NAVY_LT,color:qIdx>=queueRows.length-1?"#475569":"#94A3B8",fontSize:"0.62rem",fontFamily:"inherit",cursor:qIdx>=queueRows.length-1?"default":"pointer"}}>Skip ▸</button>
               <button onClick={()=>{setQIdx(null);setActiveMat(null);}} title="leave the queue" style={{padding:"0.28rem 0.45rem",borderRadius:6,border:"1px solid #2D5280",background:"transparent",color:"#64748B",fontSize:"0.62rem",fontFamily:"inherit",cursor:"pointer"}}>✕</button>
             </div>
-            <div style={{flexBasis:"100%",fontSize:"0.56rem",color:"#5E7BA0"}}>{r.reviewWhy||"no corpus measurement for this reader — review it before the graded ones"} · keys: <b style={{color:"#8FA7C0"}}>c</b> confirm · <b style={{color:"#8FA7C0"}}>↓/↑</b> move · <b style={{color:"#8FA7C0"}}>esc</b> exit</div>
+            <div style={{flexBasis:"100%",fontSize:"0.56rem",color:"#5E7BA0"}}>{r.reviewWhy||"no corpus measurement for this reader — review it before the graded ones"} · keys: <b style={{color:"#8FA7C0"}}>c</b> confirm · <b style={{color:"#8FA7C0"}}>↓/↑</b> move · <b style={{color:"#8FA7C0"}}>a</b> add wall · <b style={{color:"#8FA7C0"}}>b</b> bucket · <b style={{color:"#8FA7C0"}}>esc</b> exit{netMsg?<span style={{marginLeft:8,color:netMsg[0]==="✓"?"#6EE7B7":netMsg[0]==="↩"?"#94A3B8":"#FCD34D"}}>{netMsg}</span>:null}</div>
+            {/* ── THE ABSORBED WALLS. A row is a ROLLUP: nine regions the engine really did
+                 draw show up as one number, so they read as a blank page even though the
+                 ink is there. Expanded, each one is its own confirmable wall. Books nothing. ── */}
+            {(r.pieces||[]).length>1&&<div style={{flexBasis:"100%",marginTop:"0.2rem"}}>
+              <button onClick={()=>setOpenPieces(v=>!v)} style={{border:"none",background:"transparent",color:"#7FB0E0",fontSize:"0.58rem",fontFamily:"inherit",cursor:"pointer",padding:0,fontWeight:700}}>
+                {openPieces?"▾":"▸"} {r.pieces.length} walls in this row{(()=>{const n=r.pieces.filter(p=>reviewConfirmed[pkey(r,p.id)]).length; return n?` · ${n} confirmed`:"";})()}
+              </button>
+              {openPieces&&<div style={{display:"flex",flexWrap:"wrap",gap:"0.25rem",marginTop:"0.3rem"}}>
+                {r.pieces.map(p=>{ const on=!!reviewConfirmed[pkey(r,p.id)];
+                  return <button key={p.id} onClick={()=>togglePiece(r,p.id)}
+                    title={"wall #"+p.id+" · "+readerLabel(p.readerClass)+" — confirming books nothing"}
+                    style={{display:"flex",alignItems:"center",gap:"0.25rem",padding:"0.16rem 0.42rem",borderRadius:20,cursor:"pointer",fontFamily:"inherit",fontSize:"0.6rem",fontWeight:700,
+                            border:"1px solid "+(on?"#15803D":"#2D5280"),background:on?"#052E1A":NAVY_LT,color:on?"#86EFAC":"#CBD5E1"}}>
+                    <span>{on?"✓":"○"}</span><span>{Math.round(p.sf||0).toLocaleString()} SF</span>
+                  </button>;
+                })}
+              </div>}
+            </div>}
           </div>;
         })()}
         <div style={{alignSelf:"stretch",display:"flex",alignItems:"center",gap:"0.5rem",flexWrap:"wrap"}}>
@@ -1015,7 +1197,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
             🤖 {pageSugs.length} AI suggestion{pageSugs.length===1?"":"s"} here · {Math.round(pageSugs.reduce((s,z)=>s+(z.area_sf||0),0)).toLocaleString()} SF not counted
             <button onClick={async()=>{ for(const z of pageSugs){ await acceptSuggestion(pageNum,z.id); } }} style={{padding:"0.18rem 0.5rem",borderRadius:6,border:"none",background:TEAL,color:"#06283D",fontSize:"0.6rem",fontWeight:800,fontFamily:"inherit",cursor:"pointer"}}>Accept all</button>
           </div>}
-          {bucketMode&&cornerMode&&snapPts.length>0&&<div style={{fontSize:"0.62rem",color:"#FCD34D",padding:"0.3rem 0.6rem",borderRadius:20,background:"#3B2A05",border:"1px solid #92400E"}}>⊕ snapping to {snapPts.length.toLocaleString()} drawing corners{hoverSnap?" · locked: "+hoverSnap.kind:""}</div>}
+          {bucketMode&&cornerMode&&(snapPts.length>0||detailSnaps.length>0)&&<div style={{fontSize:"0.62rem",color:"#FCD34D",padding:"0.3rem 0.6rem",borderRadius:20,background:"#3B2A05",border:"1px solid #92400E"}}>⊕ snapping to {(snapPts.length+detailSnaps.length).toLocaleString()} drawing corners{detailSnaps.length?` (${detailSnaps.length.toLocaleString()} close-in)`:""}{hoverSnap?" · locked: "+hoverSnap.kind:""}</div>}
           {deletedStack.length>0&&<button onClick={undoDelete} style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid #B45309",background:"#451A03",color:"#FCD34D",cursor:"pointer",fontFamily:"inherit"}}>↩ Undo delete ({deletedStack.length})</button>}
           <button onClick={()=>{setCalibMode(m=>!m);setCalibPts([]);}} style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid "+(calibMode?"#EF4444":"#2D5280"),background:calibMode?"#7F1D1D":NAVY_LT,color:calibMode?"#FCA5A5":"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>📏 {calibMode?(calibPts.length<2?`Click point ${calibPts.length+1} of 2`:"2 points set"):"Calibrate scale"}</button>
           {calibFt&&!calibMode&&<div style={{fontSize:"0.62rem",padding:"0.3rem 0.6rem",borderRadius:20,background:"#064E3B",color:"#6EE7B7",border:"1px solid #065F46"}}>✓ Calibrated · {calibFt.toFixed(2)} ft/in<span onClick={()=>setCalibFt(null)} style={{cursor:"pointer",textDecoration:"underline",marginLeft:6}}>reset</span></div>}
@@ -1031,7 +1213,8 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
               return <button key={lab} onClick={()=>setCalibFt(on?null:v)} title={lab.replace("in","\"")+'"=1\'-0" — sets this page\'s scale'} style={{fontSize:"0.6rem",padding:"0.22rem 0.4rem",borderRadius:5,border:"1px solid "+(on?BLUE:"#2D5280"),background:on?BLUE:NAVY_LT,color:on?"#fff":"#94A3B8",cursor:"pointer",fontFamily:"inherit",fontWeight:on?700:500}}>{lab}</button>;
             })}
           </div>}
-          <button onClick={()=>{setBucketMode(m=>!m);setSplitMode(false);setCornerMode(false);setCornerPts([]);setSnapMsg("");setCalibMode(false);}} style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid "+(bucketMode?"#10B981":"#2D5280"),background:bucketMode?"#064E3B":NAVY_LT,color:bucketMode?"#6EE7B7":"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>🪣 {bucketMode?"Bucket ON — click a wall":"Bucket fill"}</button>
+          <button onClick={()=>cornerMode?cancelCorners():startCornerAdd()} title="Trace a wall the engine never drew: click its corners (they snap to the drawing's own geometry). Keys: a · enter finishes · esc cancels" style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid "+(cornerMode?"#F59E0B":"#2D5280"),background:cornerMode?"#451A03":NAVY_LT,color:cornerMode?"#FCD34D":"#94A3B8",cursor:"pointer",fontFamily:"inherit",fontWeight:cornerMode?700:500}}>⊹ {cornerMode?`Adding wall — ${cornerPts.length} corner${cornerPts.length===1?"":"s"}`:"Add wall by corners"}<span style={{marginLeft:5,fontSize:"0.55rem",color:"#5E7BA0"}}>a</span></button>
+          <button onClick={()=>{setBucketMode(m=>!m);setSplitMode(false);setCornerMode(false);setCornerPts([]);setSnapMsg("");setCalibMode(false);}} style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid "+(bucketMode?"#10B981":"#2D5280"),background:bucketMode?"#064E3B":NAVY_LT,color:bucketMode?"#6EE7B7":"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>🪣 {bucketMode?"Bucket ON — click a wall":"Bucket fill"}<span style={{marginLeft:5,fontSize:"0.55rem",color:"#5E7BA0"}}>b</span></button>
           <button onClick={()=>{setSplitMode(m=>!m);setBucketMode(false);setCornerMode(false);setCalibMode(false);setSnapMsg("");}} title="Click a face where the material changes — it splits along the structural line there" style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid "+(splitMode?"#F59E0B":"#2D5280"),background:splitMode?"#451A03":NAVY_LT,color:splitMode?"#FCD34D":"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>✂ {splitMode?"Split ON — click the boundary":"Split face"}</button>
           {bucketMode&&<div style={{display:"flex",alignItems:"center",gap:"0.3rem",padding:"0.2rem 0.5rem",borderRadius:20,background:NAVY_LT,border:"1px solid #2D5280"}}>
             {BUCKET_COLS.map(c=>(
@@ -1041,8 +1224,11 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
           </div>}
           {bucketMode&&cornerMode&&<div style={{display:"flex",alignItems:"center",gap:"0.35rem"}}>
             <span style={{fontSize:"0.63rem",color:"#FCD34D"}}>Corners: {cornerPts.length}</span>
-            <button onClick={finishCorners} disabled={cornerPts.length<3} style={{fontSize:"0.63rem",padding:"0.25rem 0.6rem",borderRadius:5,border:"none",background:cornerPts.length<3?"#334155":"linear-gradient(180deg,#34D399,#10B981)",color:"#fff",cursor:cornerPts.length<3?"default":"pointer",fontFamily:"inherit",fontWeight:700}}>Finish</button>
-            <button onClick={cancelCorners} style={{fontSize:"0.63rem",padding:"0.25rem 0.5rem",borderRadius:5,border:"1px solid #2D5280",background:NAVY_LT,color:"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+            <input value={lastAddMat} onChange={e=>setLastAddMat(e.target.value)} placeholder="name it (reused for the next add)"
+              title="The name carries to the next wall you add — trims come in runs"
+              style={{width:170,padding:"0.22rem 0.45rem",borderRadius:5,border:"1px solid #2D5280",background:NAVY,color:"#E2E8F0",fontSize:"0.63rem",fontFamily:"inherit"}}/>
+            <button onClick={finishCorners} disabled={cornerPts.length<3} style={{fontSize:"0.63rem",padding:"0.25rem 0.6rem",borderRadius:5,border:"none",background:cornerPts.length<3?"#334155":"linear-gradient(180deg,#34D399,#10B981)",color:"#fff",cursor:cornerPts.length<3?"default":"pointer",fontFamily:"inherit",fontWeight:700}}>Finish <span style={{fontSize:"0.55rem",opacity:0.75}}>⏎</span></button>
+            <button onClick={cancelCorners} style={{fontSize:"0.63rem",padding:"0.25rem 0.5rem",borderRadius:5,border:"1px solid #2D5280",background:NAVY_LT,color:"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>Cancel <span style={{fontSize:"0.55rem",opacity:0.75}}>esc</span></button>
           </div>}
           {(bucketMode||groupMode)&&snapMsg&&<div style={{fontSize:"0.63rem",padding:"0.3rem 0.6rem",borderRadius:20,background:NAVY_LT,color:(snapMsg[0]==="✓"||snapMsg[0]==="⚡")?"#6EE7B7":"#CBD5E1",border:"1px solid #2D5280"}}>{snapMsg}</div>}
           <button onClick={()=>{const nm=!groupMode;setGroupMode(nm);setBucketMode(false);setCalibMode(false);setCornerMode(false);if(nm&&previewGroups.length===0)loadGroups();}} style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid "+(groupMode?"#A78BFA":"#2D5280"),background:groupMode?"#3730A3":NAVY_LT,color:groupMode?"#DDD6FE":"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>🎨 {groupMode?(groupBusy?"Finding groups…":"Auto-groups — click to pick"):"Auto-groups (preview)"}</button>
