@@ -1864,6 +1864,83 @@ function ScopePanel({ BACKEND, jobId, setResults }) {
   );
 }
 
+function MaterialsPanel({ BACKEND, jobId, setResults }) {
+  const [mats, setMats] = useState(null);
+  const [draft, setDraft] = useState({});     // group -> in-progress text
+  const [busy, setBusy] = useState("");
+  const [err, setErr] = useState("");
+  const load = useCallback(() => {
+    if (!jobId) { setMats(null); return; }
+    fetch(BACKEND + "/materials/" + jobId)
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(d => { setMats(d); setErr(""); })
+      .catch(() => setMats(null));             // older backend: panel simply doesn't appear
+  }, [BACKEND, jobId]);
+  useEffect(() => { load(); }, [load]);
+  const save = async (group, name) => {
+    setBusy(group);
+    try {
+      const r = await fetch(BACKEND + "/set-material-name", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId, group, name }) });
+      if (!r.ok) throw new Error(r.status);
+      const d = await r.json();
+      setMats(d); setErr("");
+      // the server hands back the whole takeoff, so the ledger, the Budget tab and every
+      // export follow the name in one round trip — no local arithmetic that could disagree.
+      if (d.takeoffData && setResults) setResults(prev => ({ ...prev, takeoffData: d.takeoffData }));
+      setDraft(p => { const q = { ...p }; delete q[group]; return q; });
+    } catch { setErr("Couldn't save that — your takeoff is unchanged."); }
+    setBusy("");
+  };
+  if (!mats || !(mats.groups || []).length) return null;
+  const unnamed = mats.groups.filter(g => g.isUnnamed);
+  const named   = mats.groups.filter(g => g.isNamed);
+  if (!unnamed.length && !named.length) return null;
+  const pageTag = g => (g.pages || []).length ? ("p." + g.pages.join(", ")) : "";
+  return (
+    <div style={{background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",overflow:"hidden"}}>
+      <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",padding:"0.7rem 0.85rem 0.45rem",borderBottom:"1px solid #EDF2F8"}}>
+        <span style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em"}}>Materials — name the unnamed</span>
+        <span style={{fontSize:"0.58rem",color:"#8FA3BC",fontWeight:600}}>{Math.round(mats.unnamedSF||0).toLocaleString()} SF</span>
+      </div>
+      {unnamed.length>0&&(
+        <div>
+          {unnamed.map((g,i)=>(
+            <div key={g.group} title={pageTag(g)}
+              style={{display:"flex",alignItems:"center",gap:"0.5rem",padding:"0.45rem 0.85rem",borderTop:i?"1px solid #F2F6FA":"none",background:"#FBFCFE",opacity:busy===g.group?0.5:1}}>
+              <span style={{fontSize:"0.66rem",fontWeight:500,color:"#64748B",minWidth:0,flexShrink:0,maxWidth:"9rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                Unnamed cladding · {pageTag(g)} · {Math.round(g.sf).toLocaleString()} SF
+              </span>
+              <input value={draft[g.group]||""} disabled={!!busy} placeholder="name it…"
+                onChange={e=>setDraft(p=>({ ...p, [g.group]: e.target.value }))}
+                onKeyDown={e=>{ if(e.key==="Enter"&&(draft[g.group]||"").trim()) save(g.group,(draft[g.group]||"").trim()); }}
+                style={{flex:1,minWidth:0,padding:"0.2rem 0.4rem",borderRadius:5,border:"1px solid #CBD9EA",background:"#fff",color:"#122A45",fontSize:"0.64rem",fontFamily:"inherit"}}/>
+              <button disabled={!!busy||!(draft[g.group]||"").trim()} onClick={()=>save(g.group,(draft[g.group]||"").trim())}
+                style={{fontSize:"0.56rem",fontWeight:700,color:"#fff",background:BLUE,border:"none",borderRadius:6,padding:"0.2rem 0.5rem",cursor:busy?"wait":"pointer",flexShrink:0,opacity:(draft[g.group]||"").trim()?1:0.5}}>Name it</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {named.length>0&&(
+        <div style={{padding:"0.55rem 0.85rem 0.7rem",borderTop:"1px solid #F2F6FA"}}>
+          <div style={{fontSize:"0.56rem",color:"#8FA3BC",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"0.35rem"}}>Named</div>
+          {named.map(g=>(
+            <div key={g.group} title={g.machineName+" · "+pageTag(g)} style={{display:"flex",alignItems:"center",gap:"0.4rem",padding:"0.2rem 0"}}>
+              <span style={{fontSize:"0.66rem",fontWeight:600,color:"#122A45",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.name} · {Math.round(g.sf).toLocaleString()} SF</span>
+              <button onClick={()=>save(g.group,null)} disabled={!!busy}
+                style={{fontSize:"0.56rem",fontWeight:700,color:"#94A3B8",background:"#fff",border:"1px solid #E2E8F0",borderRadius:6,padding:"0.15rem 0.45rem",cursor:busy?"wait":"pointer",flexShrink:0}}>Clear</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {err&&<div style={{fontSize:"0.58rem",color:"#B42318",padding:"0.35rem 0.85rem"}}>{err}</div>}
+      <div style={{fontSize:"0.56rem",color:"#8FA3BC",padding:"0.45rem 0.85rem 0.65rem",lineHeight:1.4,borderTop:"1px solid #F2F6FA"}}>
+        The engine measured this SF but the drawing gave it no product name. Name it once — it flows to the ledger, the Excel and the evidence PDF, and it moves not one SF. Clearing puts the machine's label back.
+      </div>
+    </div>
+  );
+}
+
 function ScopeSection({ title, tone, children }) {
   return <div style={{background:"#fff",borderRadius:10,border:"1px solid "+(tone==="amber"?"#FDE68A":"#EEF2F7"),padding:"0.9rem 1.1rem"}}>
     <div style={{fontSize:"0.6rem",letterSpacing:"0.1em",color:tone==="amber"?"#B45309":BLUE,textTransform:"uppercase",fontWeight:700,marginBottom:"0.6rem"}}>{title}</div>
@@ -3466,6 +3543,7 @@ export default function BFSEstimator() {
                 totals and exports but stay on the drawing. All ticked by default, so a job
                 she never touches is unchanged. */}
             {results?.jobId&&<ScopePanel BACKEND={BACKEND} jobId={results.jobId} setResults={setResults}/>}
+            {results?.jobId&&<MaterialsPanel BACKEND={BACKEND} jobId={results.jobId} setResults={setResults}/>}
 
             {/* SCOPE CHECK — the Scope tab's conclusions pre-check the detected materials */}
             {scopeCheck&&(
