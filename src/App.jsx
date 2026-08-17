@@ -569,7 +569,9 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     // teach the flywheel: this pattern was NOT cladding here
     if(results?.jobId) fetch(BACKEND+"/learn",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page:pageNum,source:"delete",shapes:zs.map(z=>({points:z.points,name:"NOT-CLADDING",color:z.fill_color,type:"delete"}))})}).catch(()=>{});
     setActiveGroup(null);
-    if(Array.isArray(zsIn)){ setActiveMat(null); loadQueue(); }   // the queue lost a region — re-rank
+    // deleted from the queue: the row disappears and the walker's position now points at the
+    // NEXT region — the sync effect above re-lights it, so she keeps walking without a click.
+    if(Array.isArray(zsIn)) loadQueue();
   };
   // Undo the last delete: restore the exact zone numbers and un-hide the shapes
   const undoDelete = () => {
@@ -811,6 +813,18 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   };
   const unconfirmRow = (i)=>{ const r=queueRows[i]; if(!r) return;
     setReviewConfirmed(prev=>{ const n={...prev}; delete n[qkey(r)]; return n; }); };
+  // The queue is LIVE: parking a group (scope gate), deleting a junk region or accepting a
+  // suggestion all change how many rows there are underneath the walker. Two invariants, so
+  // the position can never point at a row that no longer exists:
+  //   1. a position past the end snaps back to the last row (or leaves the queue if empty)
+  //   2. the lit region on the sheet always IS the row the walker is showing
+  useEffect(()=>{
+    if(qIdx==null) return;
+    if(qIdx>=queueRows.length){ setQIdx(queueRows.length?queueRows.length-1:null); return; }
+    const r=queueRows[qIdx];
+    if(r&&(!activeMat||activeMat.page!==r.page||activeMat.materialName!==r.materialName))
+      setActiveMat({page:r.page,materialName:r.materialName});
+  });
   // region in focus on THIS page (the queue row's pieces)
   const matSelName = (activeMat && activeMat.page===pageNum) ? activeMat.materialName : null;
   const matSelZones = matSelName ? displayZones.filter(z=>!z.suggest_only&&matKeyOf(z)===matSelName) : [];
