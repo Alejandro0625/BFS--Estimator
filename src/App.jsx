@@ -330,7 +330,28 @@ function DeepZoom({ BACKEND, jobId, pageNum, children }) {
   );
 }
 
-function InteractiveView({ results, BACKEND, assignments, setAssignments, groupRename={}, setGroupRename=()=>{}, setResults, hiddenIds={}, setHiddenIds=()=>{}, deletedStack=[], setDeletedStack=()=>{}, bucketShapes=[], setBucketShapes=()=>{}, bucketColorNames={}, setBucketColorNames=()=>{} }) {
+/* Reader labels for the review queue — DISPLAY ONLY (mirrors review_rank.LABELS).
+   No SF, total, price or export ever reads this map; the RISK NUMBERS beside it are not
+   here, they come from /review-queue's own `table.risk` so the frontend can never quote a
+   stale rate. If a class is missing here we show the raw class, never a guessed label. */
+const READER_LABEL = { hatch:"Hatch reader", color:"Drawn color", rc:"Rendered reader",
+  v13:"AI boundary model", band:"Story-band", flood:"Structural flood", fill:"Drawn fill",
+  train:"Drawing geometry", multi:"Several readers", model:"Trained model",
+  texture:"Texture reader", density:"Density reader", markup:"Your markup (exact)",
+  suggestion:"AI suggestion (not counted)" };
+const readerLabel = c => READER_LABEL[c] || (c ? String(c) : "Unmeasured reader");
+/* Rank → colour. Rank 0 = a reader the corpus never graded: it sorts FIRST and is drawn as
+   "unmeasured", never as "safe" (review_rank.rank's whole point). */
+const rankTone = r => (r===0 ? ["#FDE68A","#78350F","UNMEASURED"]
+  : r<=2 ? ["#FEE2E2","#B91C1C","HIGHEST RISK"]
+  : r<=4 ? ["#FEF3C7","#B45309","HIGH RISK"]
+  : r<=7 ? ["#E0F2FE","#075985","MODERATE"]
+  : ["#DCFCE7","#15803D","LOWEST RISK"]);
+/* A polygon's rollup key — must equal the zone's `materialName` that app.py emits:
+   material_group when the job grouped, else the raw material/category name. */
+const matKeyOf = z => z.material_group || z.material || z.category || "Unlabeled";
+
+function InteractiveView({ results, BACKEND, assignments, setAssignments, groupRename={}, setGroupRename=()=>{}, setResults, hiddenIds={}, setHiddenIds=()=>{}, deletedStack=[], setDeletedStack=()=>{}, bucketShapes=[], setBucketShapes=()=>{}, bucketColorNames={}, setBucketColorNames=()=>{}, reviewConfirmed={}, setReviewConfirmed=()=>{} }) {
   const [elevIdx, setElevIdx] = useState(0);
   const [pageImage, setPageImage] = useState(null);
   const [imgLoaded, setImgLoaded] = useState(false);
@@ -358,6 +379,23 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   const [previewGroups, setPreviewGroups] = useState([]);
   const [selGroups, setSelGroups] = useState({});   // { group_id: materialName }
   const [groupBusy, setGroupBusy] = useState(false);
+  // ── REVIEW QUEUE (blueprint STEP 2 surface) ────────────────────────────────────────────
+  // The riskiest-first worklist. The ORDER is the SERVER'S (`/review-queue/{jid}` → review_rank,
+  // the measured over-read rate of the reader that drew each region); this component never
+  // re-derives it, it only looks each ordered region up in the LIVE takeoff so a region she
+  // just deleted leaves the queue at once. It books nothing: confirming marks a row done and
+  // changes no SF, no total and no export — identity by default.
+  const [rail, setRail] = useState("elev");                 // left rail: elevations | queue
+  const [queue, setQueue] = useState({status:"idle",zones:[],pages:[],table:null,err:""});
+  const [qIdx, setQIdx] = useState(null);                   // position while walking the queue
+  const [activeMat, setActiveMat] = useState(null);         // {page, materialName} in focus
+  // Suggestions (STEP 3 surface): pieces the engine drew but deliberately did NOT count.
+  // They live on /polygons per page, never in zones — so finding them means scanning pages.
+  const [sugScan, setSugScan] = useState({status:"idle",done:0,total:0,items:[],err:""});
+  const [acceptBusy, setAcceptBusy] = useState(null);
+  // Bluebeam-style corner snap for the bucket's corner fallback (the <10s "add a missed wall")
+  const [snapPts, setSnapPts] = useState([]);
+  const [hoverSnap, setHoverSnap] = useState(null);
   // hiddenIds / deletedStack are LIFTED to the parent so deletes save + restore with the bid
   const imgRef = useRef();
   const svgRef = useRef();
@@ -377,7 +415,26 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
       .then(d=>{setPagePolygons(d.polygons||[]);setPageDims({width:d.width||612,height:d.height||792});})
       .catch(()=>{});
     setPageImage(withKey(BACKEND+"/page-image/"+results.jobId+"/"+pageNum));
+    // the drawing's real CAD corners — the bucket's corner fallback snaps to these
+    setSnapPts([]); setHoverSnap(null);
+    fetch(BACKEND+"/snap-points/"+results.jobId+"/"+pageNum)
+      .then(r=>r.ok?r.json():{points:[]}).then(d=>setSnapPts(d.points||[])).catch(()=>setSnapPts([]));
   }, [elevIdx, pageNum, results.jobId, BACKEND]);
+
+  // ── the ranking. Fetched from the server, which OWNS the order (review_rank.order_zones).
+  // A failure here is visible and harmless: the rail falls back to the Elevations list and
+  // every other surface renders exactly as it did before this shipped.
+  const loadQueue = useCallback(()=>{
+    if(!results.jobId) return;
+    setQueue(q=>({...q,status:q.status==="ok"?"ok":"loading",err:""}));
+    return fetch(BACKEND+"/review-queue/"+results.jobId)
+      .then(r=>r.ok?r.json():Promise.reject(new Error("HTTP "+r.status)))
+      .then(d=>setQueue({status:"ok",zones:d.zones||[],pages:d.pages||[],table:d.table||null,err:""}))
+      .catch(e=>setQueue({status:"err",zones:[],pages:[],table:null,err:String(e&&e.message||e)}));
+  },[BACKEND,results.jobId]);
+  useEffect(()=>{ loadQueue(); },[loadQueue]);
+  useEffect(()=>{ setQIdx(null); setActiveMat(null); setRail("elev");
+    setSugScan({status:"idle",done:0,total:0,items:[],err:""}); },[results.jobId]);
 
   // ✂ v13 boundary cut suggestions for the selected piece (one at a time)
   const [splitSug,setSplitSug]=useState(null);
@@ -432,8 +489,9 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   // ✂ helpers: half-plane clip + shoelace; applied cuts split the piece and feed /learn
   const _clipHalf=(pts,axis,pos,low)=>{const out=[];for(let i=0;i<pts.length;i++){const a=pts[i],b=pts[(i+1)%pts.length];const av=axis==="v"?a[0]:a[1],bv=axis==="v"?b[0]:b[1];const ai=low?av<=pos:av>=pos,bi=low?bv<=pos:bv>=pos;if(ai)out.push(a);if(ai!==bi){const t=(pos-av)/((bv-av)||1e-9);out.push([a[0]+t*(b[0]-a[0]),a[1]+t*(b[1]-a[1])]);}}return out;};
   const _shoe=pts=>{let s=0;for(let i=0;i<pts.length;i++){const[x1,y1]=pts[i],[x2,y2]=pts[(i+1)%pts.length];s+=x1*y2-x2*y1;}return Math.abs(s)/2;};
-  const suggestSplits=async()=>{
-    const z=selectedZones.slice().sort((a,b)=>(b.area_sf||0)-(a.area_sf||0))[0];
+  const suggestSplits=async(zsIn)=>{
+    const pool=Array.isArray(zsIn)?zsIn:selectedZones;
+    const z=pool.slice().sort((a,b)=>(b.area_sf||0)-(a.area_sf||0))[0];
     if(!z||!(z.points||[]).length)return;
     setSplitBusy(true);
     try{
@@ -484,28 +542,34 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   const removeGroup = () => { setAssignments(prev=>{const n={...prev};selectedIds.forEach(id=>delete n[assignKey(id)]);return n;}); };
   // DELETE a bad highlight: hides the shapes AND subtracts their SF from the page's real
   // takeoff zones (summary/pricing/Excel follow) — junk detections can't pollute the bid.
-  const deleteGroup = () => {
-    if(!selectedZones.length) return;
+  // `zs` defaults to the clicked hatch group — the review queue passes its own region set in.
+  const deleteGroup = (zsIn) => {
+    const zs = Array.isArray(zsIn) ? zsIn : selectedZones;
+    const zids = zs.map(z=>z.id);
+    if(!zs.length) return;
     const byMat = {};
-    selectedZones.forEach(z=>{ const k=z.material||z.category||""; byMat[k]=(byMat[k]||0)+(z.area_sf||0); });
+    // key on the ROLLUP name (material_group when the job grouped) — that is what the page's
+    // zones are keyed on, so the subtraction below actually finds its zone on grouped jobs.
+    zs.forEach(z=>{ const k=matKeyOf(z); byMat[k]=(byMat[k]||0)+(z.area_sf||0); });
     // undo snapshot: the exact zones array of this page before the subtraction
     const pageBefore = (results.takeoffData||[]).find(e=>e.pageNumber===pageNum);
-    setDeletedStack(prev=>[...prev,{ page:pageNum, ids:selectedZones.map(z=>z.id), zonesBefore:(pageBefore?.zones||[]).map(z=>({...z})) }]);
-    setHiddenIds(prev=>{ const n={...prev}; selectedZones.forEach(z=>{ n[pageNum+":"+z.id]=true; }); return n; });
-    setAssignments(prev=>{ const n={...prev}; selectedIds.forEach(id=>delete n[assignKey(id)]); return n; });
+    setDeletedStack(prev=>[...prev,{ page:pageNum, ids:zids, zonesBefore:(pageBefore?.zones||[]).map(z=>({...z})) }]);
+    setHiddenIds(prev=>{ const n={...prev}; zs.forEach(z=>{ n[pageNum+":"+z.id]=true; }); return n; });
+    setAssignments(prev=>{ const n={...prev}; zids.forEach(id=>delete n[assignKey(id)]); return n; });
     if(setResults) setResults(prev=>({ ...prev, takeoffData: prev.takeoffData.map(e=>{
       if(e.pageNumber!==pageNum) return e;
       const zones=(e.zones||[]).map(z=>({...z}));
       Object.entries(byMat).forEach(([mat,sf])=>{
-        let z = zones.find(zz=>zz.materialName===mat||zz.category===mat);
+        let z = zones.find(zz=>zz.materialName===mat||zz.material_group===mat||zz.category===mat);
         if(!z&&zones.length===1) z=zones[0];
         if(z){ z.netArea=Math.max(0,(z.netArea||0)-sf); z.grossArea=Math.max(0,(z.grossArea||0)-sf); }
       });
       return {...e, zones: zones.filter(z=>(z.netArea||0)>1)};
     })}));
     // teach the flywheel: this pattern was NOT cladding here
-    if(results?.jobId) fetch(BACKEND+"/learn",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page:pageNum,source:"delete",shapes:selectedZones.map(z=>({points:z.points,name:"NOT-CLADDING",color:z.fill_color,type:"delete"}))})}).catch(()=>{});
+    if(results?.jobId) fetch(BACKEND+"/learn",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page:pageNum,source:"delete",shapes:zs.map(z=>({points:z.points,name:"NOT-CLADDING",color:z.fill_color,type:"delete"}))})}).catch(()=>{});
     setActiveGroup(null);
+    if(Array.isArray(zsIn)){ setActiveMat(null); loadQueue(); }   // the queue lost a region — re-rank
   };
   // Undo the last delete: restore the exact zone numbers and un-hide the shapes
   const undoDelete = () => {
@@ -565,13 +629,34 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     }catch{ setSnapMsg("Split failed — check connection"); }
     setSnapBusy(false);
   };
+  // ── Bluebeam-style object snap for the corner fallback (same rule as the Draw tab):
+  // the drawing's real CAD corners win, else 90° ortho-lock to the previous point. The
+  // tolerance is measured off the SVG's ON-SCREEN size, so it stays ~12px however far the
+  // deep-zoom is pushed in. Snapping only ever moves the ESTIMATOR'S OWN click — no
+  // detected geometry and no SF is touched by it.
+  const snapEval=(p)=>{
+    if(!p) return null;
+    const rect=svgRef.current&&svgRef.current.getBoundingClientRect();
+    const W=(rect&&rect.width)||svgW||1, H=(rect&&rect.height)||svgH||1;
+    const tol=12;
+    let best=null,bd=tol;
+    for(const c of snapPts){ const d=Math.hypot((c[0]-p.x)*W,(c[1]-p.y)*H); if(d<bd){bd=d;best=c;} }
+    if(best) return {x:best[0],y:best[1],kind:"corner"};
+    const prev=cornerPts.length?cornerPts[cornerPts.length-1]:null;
+    if(prev){
+      const dx=Math.abs(p.x-prev.x)*W, dy=Math.abs(p.y-prev.y)*H;
+      if(dx<tol&&dy>tol) return {x:prev.x,y:p.y,kind:"ortho"};
+      if(dy<tol&&dx>tol) return {x:p.x,y:prev.y,kind:"ortho"};
+    }
+    return null;
+  };
   const handleSvgClick=evt=>{
     if(suppressClickRef.current){ suppressClickRef.current=false; return; }   // that click was a vertex drag
     if(calibMode){ const p=getSvgPoint(evt); if(p) setCalibPts(prev=>prev.length>=2?[p]:[...prev,p]); return; }
     if(splitMode&&!snapBusy){ const p=getSvgPoint(evt); if(p) doSplit(p); return; }
     if(!bucketMode||snapBusy) return;
     const p=getSvgPoint(evt); if(!p) return;
-    if(cornerMode){ setCornerPts(prev=>[...prev,p]); return; }
+    if(cornerMode){ const s=snapEval(p); setCornerPts(prev=>[...prev,s?{x:s.x,y:s.y}:p]); return; }
     doBucket(p);
   };
   const addBucketShape=(points,area_sf,extra={})=>{
@@ -585,7 +670,13 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   const suppressClickRef=useRef(false); // swallow the click that follows a handle drag
   const [editShape,setEditShape]=useState(null);
   const handleSvgMove=e=>{
-    const d=dragRef.current; if(!d) return;
+    const d=dragRef.current;
+    if(!d){   // live snap indicator: show exactly what the next corner click will lock to
+      if(bucketMode&&cornerMode&&snapPts.length){ const q=getSvgPoint(e); const s=q?snapEval(q):null;
+        setHoverSnap(prev=>(prev&&s&&prev.x===s.x&&prev.y===s.y)?prev:s); }
+      else if(hoverSnap) setHoverSnap(null);
+      return;
+    }
     const p=getSvgPoint(e); if(!p) return;
     setBucketShapes(prev=>prev.map(sh=>{
       if(sh.id!==d.sid) return sh;
@@ -673,6 +764,113 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   const setGroupMat=(gid,mat)=>setSelGroups(prev=>({...prev,[gid]:mat}));
   const selGroupList=previewGroups.filter(g=>selGroups[g.group]!==undefined);
   const selGroupSF=selGroupList.reduce((s,g)=>s+(g.approx_sf||0),0);
+  // ── THE QUEUE: server order + LIVE takeoff numbers ─────────────────────────────────────
+  const dispName = n => (groupRename && groupRename[n]) || n;   // her rename wins in the queue too
+  const pageToElev = {}; elevations.forEach((e,i)=>{ if(e.pageNumber!==undefined) pageToElev[e.pageNumber]=i; });
+  const liveZone = (page,name)=>{
+    const e=(results.takeoffData||[]).find(x=>x.pageNumber===page);
+    return (e?.zones||[]).find(z=>z.materialName===name||z.material_group===name)||null;
+  };
+  const qkey = r => r.page+"::"+r.materialName;
+  // Rows the server ranked, minus anything she has already removed from the takeoff. Zones
+  // that appeared AFTER the fetch (an accepted suggestion) are appended by their own
+  // server-stamped reviewRank — the frontend never invents a rank.
+  // ⚠ ONLY when the server answered. If the ranking is down the queue is EMPTY — never an
+  // unordered list wearing a "riskiest first" label. That is the same call app.py makes when
+  // it 503s rather than returning a silently unranked queue.
+  const seenQ = {};
+  const queueRows = queue.status!=="ok" ? [] : (queue.zones||[]).map(r=>{
+    seenQ[qkey(r)]=1;
+    const z=liveZone(r.page,r.materialName);
+    return z ? {...r, netArea:z.netArea||0, live:true} : null;
+  }).filter(Boolean).filter(r=>(r.netArea||0)>0);
+  if(queue.status==="ok") (results.takeoffData||[]).forEach(e=>{ (e.zones||[]).forEach(z=>{
+    const k=e.pageNumber+"::"+z.materialName;
+    if(seenQ[k]||!(z.netArea>0)) return;
+    seenQ[k]=1;
+    queueRows.push({page:e.pageNumber,materialName:z.materialName,netArea:z.netArea,
+      readerClass:z.readerClass,reader:z.reader,reviewRank:z.reviewRank,reviewRisk:z.reviewRisk,
+      reviewRate:z.reviewRate,reviewWhy:z.reviewWhy,live:true,added:true});
+  }); });
+  const queueSF = queueRows.reduce((s,r)=>s+(r.netArea||0),0);
+  const confirmedN = queueRows.filter(r=>reviewConfirmed[qkey(r)]).length;
+  const jumpTo = (i)=>{
+    const r=queueRows[i]; if(!r) return;
+    setQIdx(i); setActiveGroup(null); setSplitSug(null);
+    setActiveMat({page:r.page,materialName:r.materialName});
+    const ei=pageToElev[r.page];
+    if(ei!==undefined&&ei!==elevIdx) setElevIdx(ei);
+  };
+  const stepQueue = (d)=>{ if(!queueRows.length) return; const n=Math.min(queueRows.length-1,Math.max(0,(qIdx==null?-1:qIdx)+d)); jumpTo(n); };
+  // CONFIRM BOOKS NOTHING. It records "a human looked at this region" and moves on — no SF,
+  // no total, no export changes. That is what lets the queue ship without a gate.
+  const confirmRow = (i)=>{
+    const r=queueRows[i]; if(!r) return;
+    setReviewConfirmed(prev=>({...prev,[qkey(r)]:{at:Date.now(),sf:r.netArea,reader:r.readerClass||null}}));
+    if(i<queueRows.length-1) jumpTo(i+1); else { setQIdx(null); setActiveMat(null); }
+  };
+  const unconfirmRow = (i)=>{ const r=queueRows[i]; if(!r) return;
+    setReviewConfirmed(prev=>{ const n={...prev}; delete n[qkey(r)]; return n; }); };
+  // region in focus on THIS page (the queue row's pieces)
+  const matSelName = (activeMat && activeMat.page===pageNum) ? activeMat.materialName : null;
+  const matSelZones = matSelName ? displayZones.filter(z=>!z.suggest_only&&matKeyOf(z)===matSelName) : [];
+  // keyboard walk — only while a row is in focus and never while typing in a field
+  useEffect(()=>{
+    if(qIdx==null) return;
+    const onKey=e=>{
+      const t=e.target&&e.target.tagName;
+      if(t==="INPUT"||t==="TEXTAREA"||t==="SELECT"||(e.target&&e.target.isContentEditable)) return;
+      if(e.key==="ArrowDown"||e.key==="n"){ e.preventDefault(); stepQueue(1); }
+      else if(e.key==="ArrowUp"||e.key==="p"){ e.preventDefault(); stepQueue(-1); }
+      else if(e.key==="c"||e.key==="Enter"){ e.preventDefault(); confirmRow(qIdx); }
+      else if(e.key==="Escape"){ setQIdx(null); setActiveMat(null); }
+    };
+    window.addEventListener("keydown",onKey);
+    return ()=>window.removeEventListener("keydown",onKey);
+  });
+  // ── SUGGESTIONS: the engine drew them and deliberately did not count them. They live only
+  // on /polygons, so finding every one means walking the pages. Scan is opt-in, sequential
+  // (one page at a time — never a burst at the backend) and keeps only a summary per piece.
+  const scanRef = useRef(0);
+  const scanSuggestions = async()=>{
+    const pages=elevations.map(e=>e.pageNumber).filter(p=>p!==undefined);
+    const run=++scanRef.current;
+    setSugScan({status:"running",done:0,total:pages.length,items:[],err:""});
+    const out=[];
+    for(let i=0;i<pages.length;i++){
+      if(scanRef.current!==run) return;
+      try{
+        const d=await fetch(BACKEND+"/polygons/"+results.jobId+"/"+pages[i]).then(r=>r.ok?r.json():{polygons:[]});
+        (d.polygons||[]).forEach(p=>{ if(p.suggest_only&&(p.area_sf||0)>0&&!hiddenIds[pages[i]+":"+p.id])
+          out.push({page:pages[i],id:p.id,area_sf:p.area_sf,cls:p.reader_class||null,cx:p.cx,cy:p.cy}); });
+      }catch(e){ /* a page that won't load is skipped, never fatal */ }
+      if(scanRef.current!==run) return;
+      setSugScan({status:i===pages.length-1?"ok":"running",done:i+1,total:pages.length,items:[...out],err:""});
+    }
+  };
+  // Ranked by the SERVER'S risk order (queue.table.order) — the same measured ordering the
+  // region queue uses. No order = no claim: they fall back to biggest-first.
+  const sugOrder = (queue.table&&queue.table.order)||null;
+  const sugItems = [...(sugScan.items||[])].sort((a,b)=>{
+    const ra=sugOrder?(sugOrder.indexOf(a.cls)<0?-1:sugOrder.indexOf(a.cls)):0;
+    const rb=sugOrder?(sugOrder.indexOf(b.cls)<0?-1:sugOrder.indexOf(b.cls)):0;
+    return ra-rb||(b.area_sf||0)-(a.area_sf||0);
+  });
+  const pageSugs = displayZones.filter(z=>z.suggest_only);
+  const acceptSuggestion = async(page,pieceId)=>{
+    setAcceptBusy(page+":"+pieceId);
+    try{
+      const r=await fetch(BACKEND+"/accept-suggestion",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page,pieceId})});
+      if(r.ok){
+        const d=await r.json();
+        if(page===pageNum) setPagePolygons(prev=>prev.map(p=>p.id===pieceId?{...p,suggest_only:false,material:"AI wall (accepted)",category:"AI wall (accepted)",group:"AI wall (accepted)"}:p));
+        if(setResults) setResults(prev=>({...prev,takeoffData:(prev.takeoffData||[]).map(e=>e.pageNumber===page?{...e,zones:d.zones}:e)}));
+        setSugScan(s=>({...s,items:(s.items||[]).filter(x=>!(x.page===page&&x.id===pieceId))}));
+        loadQueue();
+      }
+    }catch(e){}
+    setAcceptBusy(null);
+  };
   const applyCalibration=()=>{
     if(calibPts.length<2) return;
     const [a,b]=calibPts;
@@ -687,19 +885,106 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
 
   return (
     <div style={{display:"flex",height:"100%",overflow:"hidden",background:NAVY,fontFamily:"'Inter','Segoe UI',sans-serif"}}>
-      {/* Elevation list */}
-      <div style={{width:185,borderRight:"1px solid "+NAVY_LT,overflowY:"auto",flexShrink:0,background:NAVY_MID}}>
-        <div style={{padding:"0.875rem",fontSize:"0.6rem",letterSpacing:"0.12em",color:"#64748B",textTransform:"uppercase",fontWeight:700,borderBottom:"1px solid "+NAVY_LT}}>Elevations</div>
-        {elevations.map((e,i)=>{
+      {/* Left rail — Elevations (as always) or the ranked REVIEW QUEUE */}
+      <div style={{width:232,borderRight:"1px solid "+NAVY_LT,overflowY:"auto",flexShrink:0,background:NAVY_MID}}>
+        <div style={{display:"flex",borderBottom:"1px solid "+NAVY_LT,position:"sticky",top:0,background:NAVY_MID,zIndex:3}}>
+          {[["elev","Elevations",elevations.length],["queue","Review queue",queueRows.length]].map(([k,lab,n])=>(
+            <button key={k} onClick={()=>setRail(k)} style={{flex:1,padding:"0.6rem 0.4rem",border:"none",background:"transparent",cursor:"pointer",fontFamily:"inherit",fontSize:"0.6rem",letterSpacing:"0.06em",textTransform:"uppercase",fontWeight:700,color:rail===k?"#E2E8F0":"#64748B",borderBottom:rail===k?"2px solid "+TEAL:"2px solid transparent"}}>
+              {lab}{n>0?<span style={{marginLeft:5,fontSize:"0.58rem",padding:"0.05rem 0.3rem",borderRadius:20,background:rail===k?TEAL:"#243B57",color:rail===k?"#06283D":"#8FA7C0"}}>{n}</span>:null}
+            </button>
+          ))}
+        </div>
+        {rail==="elev"&&elevations.map((e,i)=>{
           const assigned=Object.keys(assignments).filter(k=>k.startsWith(i+":")).length;
           return <div key={i} onClick={()=>setElevIdx(i)} style={{padding:"0.65rem 0.875rem",cursor:"pointer",borderBottom:"1px solid "+NAVY_LT,background:i===elevIdx?NAVY_LT:"transparent",borderLeft:i===elevIdx?"3px solid "+BLUE:"3px solid transparent"}}>
             <div style={{fontSize:"0.72rem",color:i===elevIdx?"#E2E8F0":"#94A3B8",fontWeight:i===elevIdx?600:400,lineHeight:1.3}}>{e.title||"Page "+e.pageNumber}</div>
             <div style={{fontSize:"0.6rem",color:assigned>0?"#4ADE80":"#475569",marginTop:3}}>{assigned>0?`✓ ${assigned} assigned`:`${(e.zones||[]).length} zones · p.${e.pageNumber}`}</div>
           </div>;
         })}
+        {rail==="queue"&&(
+          <div>
+            {queue.status==="loading"&&queueRows.length===0&&<div style={{padding:"0.9rem",fontSize:"0.66rem",color:"#64748B"}}>Ranking this job…</div>}
+            {queue.status==="err"&&<div style={{padding:"0.9rem",fontSize:"0.63rem",color:"#FCD34D",lineHeight:1.6}}>
+              Ranking unavailable ({queue.err}).<div style={{color:"#64748B",marginTop:4}}>No list is shown rather than an unordered one — an unranked queue that looks ranked is worse than none. Nothing else changes: the Elevations list and the drawing work exactly as before.</div>
+              <button onClick={loadQueue} style={{marginTop:8,fontSize:"0.62rem",padding:"0.3rem 0.6rem",borderRadius:6,border:"1px solid #2D5280",background:NAVY,color:"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>Try again</button>
+            </div>}
+            {queue.status!=="loading"&&queue.status!=="err"&&queueRows.length===0&&<div style={{padding:"0.9rem",fontSize:"0.63rem",color:"#64748B",lineHeight:1.6}}>
+              No measured regions to review on this job yet.<div style={{marginTop:5}}>Once the engine books area on a page it shows up here, riskiest reader first.</div>
+            </div>}
+            {queueRows.length>0&&<>
+              <div style={{padding:"0.7rem 0.875rem",borderBottom:"1px solid "+NAVY_LT}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
+                  <span style={{fontSize:"0.62rem",color:"#94A3B8"}}>{confirmedN} of {queueRows.length} confirmed</span>
+                  <span style={{fontSize:"0.62rem",color:"#7FB0E0",fontWeight:700}}>{Math.round(queueSF).toLocaleString()} SF</span>
+                </div>
+                <div style={{height:4,background:"#16283F",borderRadius:3,marginTop:5,overflow:"hidden"}}>
+                  <div style={{width:(queueRows.length?100*confirmedN/queueRows.length:0)+"%",height:"100%",background:"linear-gradient(90deg,#2ABFBF,#4ADE80)",transition:"width .3s"}}/>
+                </div>
+                <button onClick={()=>jumpTo(queueRows.findIndex(r=>!reviewConfirmed[qkey(r)])<0?0:queueRows.findIndex(r=>!reviewConfirmed[qkey(r)]))}
+                  style={{width:"100%",marginTop:8,padding:"0.42rem",borderRadius:7,border:"none",background:"linear-gradient(180deg,#5A92D2,#3F79BC)",color:"#fff",fontSize:"0.66rem",fontWeight:800,fontFamily:"inherit",cursor:"pointer"}}>
+                  ▶ {confirmedN?"Continue review":"Start review"} — riskiest first
+                </button>
+                <div style={{fontSize:"0.55rem",color:"#5E7BA0",marginTop:5,lineHeight:1.5}}>Order = each reader's MEASURED over-read rate{queue.table&&queue.table.drawn_walls?` (${queue.table.drawn_walls.toLocaleString()} benchmark walls)`:""}. Confirming books nothing — it marks a region reviewed.</div>
+              </div>
+              {queueRows.map((r,i)=>{
+                const done=!!reviewConfirmed[qkey(r)];
+                const [bg,fg,lab]=rankTone(r.reviewRank===undefined||r.reviewRank===null?0:r.reviewRank);
+                const cur=qIdx===i;
+                return <div key={qkey(r)} onClick={()=>jumpTo(i)} style={{padding:"0.55rem 0.7rem",borderBottom:"1px solid "+NAVY_LT,cursor:"pointer",background:cur?NAVY_LT:"transparent",borderLeft:"3px solid "+(cur?TEAL:done?"#15803D":"transparent"),opacity:done&&!cur?0.55:1}}>
+                  <div style={{display:"flex",alignItems:"center",gap:"0.35rem"}}>
+                    <span style={{fontSize:"0.5rem",fontWeight:800,color:fg,background:bg,borderRadius:4,padding:"0.05rem 0.3rem",whiteSpace:"nowrap"}}>{lab}</span>
+                    <span style={{marginLeft:"auto",fontSize:"0.78rem",fontWeight:800,color:done?"#4ADE80":"#E2E8F0"}}>{done?"✓ ":""}{Math.round(r.netArea||0).toLocaleString()}</span>
+                    <span style={{fontSize:"0.55rem",color:"#64748B"}}>SF</span>
+                  </div>
+                  <div style={{fontSize:"0.66rem",color:"#CBD5E1",marginTop:3,lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{dispName(r.materialName)}</div>
+                  <div style={{fontSize:"0.56rem",color:"#64748B",marginTop:2}}>p.{r.page} · {readerLabel(r.readerClass)}{r.reviewRate!==null&&r.reviewRate!==undefined?` · over-reads ${r.reviewRate}%`:" · never graded"}</div>
+                </div>;
+              })}
+            </>}
+            {/* ── Suggestions: drawn, deliberately NOT counted, one click from being real ── */}
+            <div style={{padding:"0.7rem 0.875rem",borderTop:"2px solid "+NAVY_LT,marginTop:"0.4rem"}}>
+              <div style={{fontSize:"0.6rem",letterSpacing:"0.1em",color:"#2ABFBF",textTransform:"uppercase",fontWeight:800}}>AI suggestions</div>
+              <div style={{fontSize:"0.56rem",color:"#64748B",marginTop:3,lineHeight:1.5}}>Walls the engine drew but did NOT count. Nothing here is in your total until you accept it.</div>
+              {sugScan.status==="idle"&&<button onClick={scanSuggestions} style={{width:"100%",marginTop:7,padding:"0.4rem",borderRadius:7,border:"1px dashed "+TEAL,background:"transparent",color:TEAL,fontSize:"0.63rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>Find suggestions on all {elevations.length} page{elevations.length===1?"":"s"}</button>}
+              {sugScan.status==="running"&&<div style={{marginTop:7,fontSize:"0.62rem",color:"#94A3B8"}}>Scanning page {sugScan.done} of {sugScan.total}…</div>}
+              {sugScan.status==="ok"&&sugItems.length===0&&<div style={{marginTop:7,fontSize:"0.62rem",color:"#64748B",lineHeight:1.5}}>None on this job. Suggestions run on raster/photo elevations only today — vector sheets get none (see the note in the report).</div>}
+              {sugItems.length>0&&<>
+                <div style={{margin:"7px 0 4px",fontSize:"0.6rem",color:"#7FE7E0",fontWeight:700}}>{sugItems.length} suggested · {Math.round(sugItems.reduce((s,x)=>s+(x.area_sf||0),0)).toLocaleString()} SF available</div>
+                {sugItems.map(s=>{
+                  const busy=acceptBusy===s.page+":"+s.id;
+                  return <div key={s.page+":"+s.id} style={{display:"flex",alignItems:"center",gap:"0.3rem",padding:"0.35rem 0",borderTop:"1px solid "+NAVY_LT}}>
+                    <span onClick={()=>{const ei=pageToElev[s.page]; if(ei!==undefined) setElevIdx(ei);}} title="show it on the sheet" style={{fontSize:"0.62rem",color:"#94A3B8",cursor:"pointer",textDecoration:"underline dotted"}}>p.{s.page}</span>
+                    <span style={{fontSize:"0.68rem",fontWeight:700,color:"#E2E8F0"}}>{Math.round(s.area_sf).toLocaleString()} SF</span>
+                    <span style={{fontSize:"0.52rem",color:"#64748B",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{readerLabel(s.cls)}</span>
+                    <button disabled={busy} onClick={()=>acceptSuggestion(s.page,s.id)} style={{padding:"0.18rem 0.45rem",borderRadius:5,border:"none",background:busy?"#334155":TEAL,color:busy?"#94A3B8":"#06283D",fontSize:"0.6rem",fontWeight:800,fontFamily:"inherit",cursor:busy?"default":"pointer"}}>{busy?"…":"Accept"}</button>
+                  </div>;
+                })}
+              </>}
+            </div>
+          </div>
+        )}
       </div>
       {/* Drawing */}
       <div style={{flex:1,overflow:"auto",display:"flex",flexDirection:"column",alignItems:"center",padding:"1rem",gap:"0.75rem"}}>
+        {/* ── QUEUE WALKER: the top-to-bottom pass. Confirm books nothing; it advances. ── */}
+        {qIdx!==null&&queueRows[qIdx]&&(()=>{
+          const r=queueRows[qIdx]; const [bg,fg,lab]=rankTone(r.reviewRank==null?0:r.reviewRank);
+          const done=!!reviewConfirmed[qkey(r)]; const offPage=pageToElev[r.page]===undefined;
+          return <div style={{alignSelf:"stretch",display:"flex",alignItems:"center",gap:"0.7rem",flexWrap:"wrap",padding:"0.55rem 0.85rem",borderRadius:10,background:"linear-gradient(90deg,#12283F,#16324D)",border:"1px solid "+TEAL+"55"}}>
+            <span style={{fontSize:"0.6rem",color:"#7FE7E0",fontWeight:800,letterSpacing:"0.06em"}}>REVIEW {qIdx+1}/{queueRows.length}</span>
+            <span style={{fontSize:"0.5rem",fontWeight:800,color:fg,background:bg,borderRadius:4,padding:"0.1rem 0.35rem"}}>{lab}</span>
+            <span style={{fontSize:"0.78rem",fontWeight:800,color:"#fff"}}>{Math.round(r.netArea||0).toLocaleString()} SF</span>
+            <span style={{fontSize:"0.68rem",color:"#CBD5E1",maxWidth:260,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{dispName(r.materialName)}</span>
+            <span style={{fontSize:"0.58rem",color:"#8FA7C0"}}>p.{r.page} · {readerLabel(r.readerClass)}{offPage?" · not in the elevation list — open it from Draw":""}</span>
+            <div style={{marginLeft:"auto",display:"flex",gap:"0.35rem",alignItems:"center"}}>
+              <button onClick={()=>stepQueue(-1)} disabled={qIdx===0} style={{padding:"0.28rem 0.5rem",borderRadius:6,border:"1px solid #2D5280",background:NAVY_LT,color:qIdx===0?"#475569":"#94A3B8",fontSize:"0.62rem",fontFamily:"inherit",cursor:qIdx===0?"default":"pointer"}}>◂</button>
+              <button onClick={()=>done?unconfirmRow(qIdx):confirmRow(qIdx)} style={{padding:"0.32rem 0.8rem",borderRadius:7,border:"none",background:done?"#14532D":"linear-gradient(180deg,#34D399,#10B981)",color:done?"#86EFAC":"#06283D",fontSize:"0.66rem",fontWeight:800,fontFamily:"inherit",cursor:"pointer"}}>{done?"✓ confirmed — undo":"✓ Confirm & next"}</button>
+              <button onClick={()=>stepQueue(1)} disabled={qIdx>=queueRows.length-1} style={{padding:"0.28rem 0.55rem",borderRadius:6,border:"1px solid #2D5280",background:NAVY_LT,color:qIdx>=queueRows.length-1?"#475569":"#94A3B8",fontSize:"0.62rem",fontFamily:"inherit",cursor:qIdx>=queueRows.length-1?"default":"pointer"}}>Skip ▸</button>
+              <button onClick={()=>{setQIdx(null);setActiveMat(null);}} title="leave the queue" style={{padding:"0.28rem 0.45rem",borderRadius:6,border:"1px solid #2D5280",background:"transparent",color:"#64748B",fontSize:"0.62rem",fontFamily:"inherit",cursor:"pointer"}}>✕</button>
+            </div>
+            <div style={{flexBasis:"100%",fontSize:"0.56rem",color:"#5E7BA0"}}>{r.reviewWhy||"no corpus measurement for this reader — review it before the graded ones"} · keys: <b style={{color:"#8FA7C0"}}>c</b> confirm · <b style={{color:"#8FA7C0"}}>↓/↑</b> move · <b style={{color:"#8FA7C0"}}>esc</b> exit</div>
+          </div>;
+        })()}
         <div style={{alignSelf:"stretch",display:"flex",alignItems:"center",gap:"0.5rem",flexWrap:"wrap"}}>
           <div style={{fontSize:"0.65rem",color:"#64748B",background:NAVY_LT,padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid #2D5280"}}>
             {displayZones.length===0?"No surfaces on this page"
@@ -710,6 +995,13 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
               :`${displayZones.length} surfaces`}
           </div>
           <div style={{fontSize:"0.62rem",color:"#5E7BA0",padding:"0.3rem 0.6rem",borderRadius:20,border:"1px dashed #2D5280"}}>🔍 wheel = zoom · shift-drag = pan</div>
+          {/* suggestions are drawn dashed and count for NOTHING until she accepts — say so, and
+              make accepting them a click from here instead of a hunt across the sheet */}
+          {pageSugs.length>0&&<div style={{display:"flex",alignItems:"center",gap:"0.4rem",fontSize:"0.62rem",color:"#7FE7E0",padding:"0.25rem 0.5rem 0.25rem 0.7rem",borderRadius:20,background:"rgba(42,191,191,0.10)",border:"1px dashed "+TEAL}}>
+            🤖 {pageSugs.length} AI suggestion{pageSugs.length===1?"":"s"} here · {Math.round(pageSugs.reduce((s,z)=>s+(z.area_sf||0),0)).toLocaleString()} SF not counted
+            <button onClick={async()=>{ for(const z of pageSugs){ await acceptSuggestion(pageNum,z.id); } }} style={{padding:"0.18rem 0.5rem",borderRadius:6,border:"none",background:TEAL,color:"#06283D",fontSize:"0.6rem",fontWeight:800,fontFamily:"inherit",cursor:"pointer"}}>Accept all</button>
+          </div>}
+          {bucketMode&&cornerMode&&snapPts.length>0&&<div style={{fontSize:"0.62rem",color:"#FCD34D",padding:"0.3rem 0.6rem",borderRadius:20,background:"#3B2A05",border:"1px solid #92400E"}}>⊕ snapping to {snapPts.length.toLocaleString()} drawing corners{hoverSnap?" · locked: "+hoverSnap.kind:""}</div>}
           {deletedStack.length>0&&<button onClick={undoDelete} style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid #B45309",background:"#451A03",color:"#FCD34D",cursor:"pointer",fontFamily:"inherit"}}>↩ Undo delete ({deletedStack.length})</button>}
           <button onClick={()=>{setCalibMode(m=>!m);setCalibPts([]);}} style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid "+(calibMode?"#EF4444":"#2D5280"),background:calibMode?"#7F1D1D":NAVY_LT,color:calibMode?"#FCA5A5":"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>📏 {calibMode?(calibPts.length<2?`Click point ${calibPts.length+1} of 2`:"2 points set"):"Calibrate scale"}</button>
           {calibFt&&!calibMode&&<div style={{fontSize:"0.62rem",padding:"0.3rem 0.6rem",borderRadius:20,background:"#064E3B",color:"#6EE7B7",border:"1px solid #065F46"}}>✓ Calibrated · {calibFt.toFixed(2)} ft/in<span onClick={()=>setCalibFt(null)} style={{cursor:"pointer",textDecoration:"underline",marginLeft:6}}>reset</span></div>}
@@ -754,7 +1046,9 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
                 else if(zone.cluster_id!==undefined)color=CLUSTER_COLORS[zone.cluster_id%CLUSTER_COLORS.length];
                 else if(zone.fill_color?.length===3){const[r,g,b]=zone.fill_color;color=`rgb(${Math.round(r*255)},${Math.round(g*255)},${Math.round(b*255)})`;}
                 const isSel=activeGroup&&gkey(zone)===activeGroup;
-                const dimmed=activeGroup&&!isSel;
+                // the region the review queue is pointing at — amber ring, everything else dims
+                const inMat=!!(matSelName&&!zone.suggest_only&&matKeyOf(zone)===matSelName);
+                const dimmed=activeGroup?!isSel:(matSelName?!inMat:false);
                 const isSug=!!zone.suggest_only;   // AI suggestion: dashed, never counted until accepted
                 const pts=toSVGPoints(zone.points);
                 const lx=zone.cx*pageDims.width,ly=zone.cy*pageDims.height;
@@ -764,7 +1058,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
                 return <g key={zone.id} style={{cursor:(calibMode||bucketMode||splitMode)?"crosshair":"pointer",pointerEvents:groupMode?"none":"auto"}} onClick={e=>{if(calibMode||bucketMode||groupMode||splitMode)return;e.stopPropagation();const k=gkey(zone);setActiveGroup(activeGroup===k?null:k);}}>
                   {/* FLAT Bluebeam-style fill (the estimator's gold-standard look): solid color,
                       whisper outline — imperfect borders stop screaming, windows show as cutouts */}
-                  <polygon points={pts} fill={isSug?"#2ABFBF":color} fillOpacity={isSug?(isSel?0.25:0.10):(dimmed?0.07:isSel?0.66:0.5)} stroke={isSug?"#2ABFBF":(isSel?"#fff":color)} strokeWidth={isSug?2:(isSel?2.5:1)} strokeOpacity={isSug?0.9:(dimmed?0.2:isSel?1:0.45)} strokeDasharray={isSug?pageDims.width/200+" "+pageDims.width/300:undefined}/>
+                  <polygon points={pts} fill={isSug?"#2ABFBF":color} fillOpacity={isSug?(isSel?0.25:0.10):(dimmed?0.07:isSel?0.66:inMat?0.62:0.5)} stroke={isSug?"#2ABFBF":(isSel?"#fff":inMat?"#FBBF24":color)} strokeWidth={isSug?2:(isSel?2.5:inMat?3:1)} strokeOpacity={isSug?0.9:(dimmed?0.2:isSel||inMat?1:0.45)} strokeDasharray={isSug?pageDims.width/200+" "+pageDims.width/300:undefined}/>
                   {!dimmed&&(zone.holes||[]).map((hp,hi)=>(
                     <polygon key={"zh"+hi} points={toSVGPoints(hp)} fill="#FFFFFF" fillOpacity={0.85} stroke={color} strokeWidth={1} strokeOpacity={0.6} style={{pointerEvents:"none"}}/>
                   ))}
@@ -796,6 +1090,11 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
               </g>;})}
               {cornerMode&&cornerPts.length>0&&<polyline points={toSVGPoints(cornerPts.map(p=>[p.x,p.y]))} fill="none" stroke="#FCD34D" strokeWidth={pageDims.width/400} strokeDasharray={pageDims.width/120}/>}
               {cornerMode&&cornerPts.map((p,i)=><circle key={"kp"+i} cx={p.x*pageDims.width} cy={p.y*pageDims.height} r={pageDims.width/130} fill="#FCD34D" stroke="#fff" strokeWidth={pageDims.width/700}/>)}
+              {/* live snap cue — the square is the CAD corner the next click will land on */}
+              {bucketMode&&cornerMode&&hoverSnap&&(()=>{const s=pageDims.width/90,x=hoverSnap.x*pageDims.width,y=hoverSnap.y*pageDims.height;return <g style={{pointerEvents:"none"}}>
+                <rect x={x-s/2} y={y-s/2} width={s} height={s} fill="none" stroke={hoverSnap.kind==="corner"?"#22D3EE":"#A78BFA"} strokeWidth={pageDims.width/500}/>
+                <circle cx={x} cy={y} r={pageDims.width/900} fill={hoverSnap.kind==="corner"?"#22D3EE":"#A78BFA"}/>
+              </g>;})()}
               {groupMode&&previewGroups.map(g=>{const sel=selGroups[g.group]!==undefined;const col=`rgb(${g.color.map(c=>Math.round(c*255)).join(",")})`;return <g key={"pg"+g.group} onClick={e=>{e.stopPropagation();toggleGroup(g);}} style={{cursor:"pointer"}}>
                 {g.patches.map((p,i)=><rect key={i} x={p[0]*pageDims.width} y={p[1]*pageDims.height} width={p[2]*pageDims.width} height={p[3]*pageDims.height} fill={col} fillOpacity={sel?0.6:0.25} stroke={sel?"#fff":"none"} strokeWidth={sel?pageDims.width/1500:0}/>)}
               </g>;})}
@@ -806,6 +1105,39 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
       </div>
       {/* Right panel */}
       <div style={{width:230,borderLeft:"1px solid "+NAVY_LT,padding:"1rem",overflowY:"auto",flexShrink:0,background:NAVY_MID}}>
+        {/* ── the queue row in focus. Every action here is one she was already going to take;
+              CONFIRM books nothing, SPLIT/REMOVE are the two edits an over-read needs. ── */}
+        {qIdx!==null&&queueRows[qIdx]&&(()=>{
+          const r=queueRows[qIdx]; const done=!!reviewConfirmed[qkey(r)];
+          const [bg,fg,lab]=rankTone(r.reviewRank==null?0:r.reviewRank);
+          const onPage=r.page===pageNum; const sf=matSelZones.reduce((s,z)=>s+(z.area_sf||0),0);
+          return <div style={{marginBottom:"0.85rem",padding:"0.7rem",background:NAVY,borderRadius:9,border:"1px solid "+TEAL+"55"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+              <span style={{fontSize:"0.55rem",letterSpacing:"0.1em",color:"#7FE7E0",textTransform:"uppercase",fontWeight:800}}>Review {qIdx+1}/{queueRows.length}</span>
+              <span style={{fontSize:"0.5rem",fontWeight:800,color:fg,background:bg,borderRadius:4,padding:"0.08rem 0.32rem"}}>{lab}</span>
+            </div>
+            <div style={{fontSize:"1.35rem",fontWeight:800,color:"#fff",lineHeight:1.1}}>{Math.round(r.netArea||0).toLocaleString()} <span style={{fontSize:"0.65rem",fontWeight:400,color:"#94A3B8"}}>SF</span></div>
+            <div style={{fontSize:"0.66rem",color:"#CBD5E1",marginTop:2}}>{dispName(r.materialName)}</div>
+            <div style={{fontSize:"0.57rem",color:"#8FA7C0",marginTop:4,lineHeight:1.5}}>
+              📖 {readerLabel(r.readerClass)} · p.{r.page}
+              {onPage&&matSelZones.length>0?<><br/>{matSelZones.length} piece{matSelZones.length===1?"":"s"} lit on this sheet · {Math.round(sf).toLocaleString()} SF drawn</>:null}
+            </div>
+            <div style={{fontSize:"0.55rem",color:"#64748B",marginTop:5,padding:"0.3rem 0.4rem",background:"rgba(0,0,0,0.28)",borderRadius:5,lineHeight:1.5}}>{r.reviewWhy||"this reader has no corpus measurement — review it before the graded ones"}</div>
+            <button onClick={()=>done?unconfirmRow(qIdx):confirmRow(qIdx)} style={{width:"100%",marginTop:7,padding:"0.5rem",borderRadius:7,border:"none",background:done?"#14532D":"linear-gradient(180deg,#34D399,#10B981)",color:done?"#86EFAC":"#06283D",fontSize:"0.68rem",fontWeight:800,fontFamily:"inherit",cursor:"pointer"}}>{done?"✓ confirmed — undo":"✓ Confirm & next"}</button>
+            <div style={{fontSize:"0.52rem",color:"#5E7BA0",textAlign:"center",marginTop:3}}>confirming changes no SF — it marks this region reviewed</div>
+            {onPage&&matSelZones.length>0&&<>
+              <button onClick={()=>{const big=matSelZones.slice().sort((a,b)=>(b.area_sf||0)-(a.area_sf||0))[0]; if(big) setActiveGroup(gkey(big));}} style={{width:"100%",marginTop:6,padding:"0.35rem",background:"transparent",border:"1px solid #2D5280",borderRadius:6,color:"#94A3B8",fontSize:"0.61rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>Open full panel — tag / rename</button>
+              {!splitSug&&<button onClick={()=>suggestSplits(matSelZones)} disabled={splitBusy} style={{width:"100%",marginTop:4,padding:"0.35rem",background:"transparent",border:"1px dashed "+TEAL,borderRadius:6,color:TEAL,fontSize:"0.61rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer",opacity:splitBusy?0.5:1}}>{splitBusy?"Reading boundaries…":"✂ One region covering several walls? Split it"}</button>}
+              {splitSug&&splitSug.cuts.length===0&&<div style={{fontSize:"0.55rem",color:"#94A3B8",textAlign:"center",marginTop:4}}>No confident cut lines in this piece.</div>}
+              {splitSug&&splitSug.cuts.map((c,i)=>(
+                <button key={i} onClick={()=>applySplit(c)} style={{width:"100%",marginTop:4,padding:"0.3rem",background:"rgba(42,191,191,0.12)",border:"1px solid "+TEAL,borderRadius:6,color:"#7FE7E0",fontSize:"0.58rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>Apply cut {i+1} — {c.axis==="v"?"vertical":"horizontal"} @ {Math.round(c.pos*100)}%</button>
+              ))}
+              {splitSug&&<div onClick={()=>setSplitSug(null)} style={{fontSize:"0.53rem",color:"#64748B",marginTop:3,cursor:"pointer",textAlign:"center"}}>dismiss cuts</div>}
+              <div onClick={()=>deleteGroup(matSelZones)} style={{padding:"0.4rem",marginTop:6,textAlign:"center",fontSize:"0.61rem",fontWeight:700,color:"#FCA5A5",cursor:"pointer",border:"1px solid #7F1D1D",borderRadius:6}}>🗑 Not cladding — remove {Math.round(sf).toLocaleString()} SF</div>
+            </>}
+            {!onPage&&<div style={{fontSize:"0.55rem",color:"#FCD34D",marginTop:6,lineHeight:1.5}}>This region is on page {r.page}, which isn't in the elevation list — open it in the Draw tab to look at it.</div>}
+          </div>;
+        })()}
         {activeGroup?(
           <>
             <div style={{fontSize:"0.6rem",letterSpacing:"0.12em",color:"#64748B",textTransform:"uppercase",fontWeight:700,marginBottom:"0.5rem"}}>Selected Hatch</div>
@@ -1241,6 +1573,95 @@ function CountUp({ value, dur=650, style }) {
     return () => cancelAnimationFrame(raf);
   }, [value]);
   return <span style={style}>{Math.round(v).toLocaleString()}</span>;
+}
+
+/* ── THE SCOPE GATE — tick what's in THIS bid (PERFECT_ACCURACY_BLUEPRINT step 1) ──
+   Measured on 122 jobs: 70.8% of every SF the engine draws lands where the estimator
+   marked nothing. That is not a detection error — the engine draws the BUILDING and she
+   bids a scoped subset (brick, EIFS, masonry and glazing are other trades by charter).
+   The drawing never says which subset, and every attempt to GUESS it has died; the last
+   one removed 5,339 SF of real cladding and turned the live battery red. So the machine
+   asks instead, once, and it takes about thirty seconds.
+
+   EVERYTHING STARTS TICKED. Until she unticks a group this panel changes nothing at all —
+   same totals, same Excel, same evidence PDF, byte for byte. Unticking PARKS a group: it
+   leaves the totals and the exports, stays visible on the drawing, and comes back with one
+   click. Nothing here ever deletes a square foot. */
+function ScopePanel({ BACKEND, jobId, setResults }) {
+  const [scope, setScope] = useState(null);
+  const [busy, setBusy] = useState("");
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    if (!jobId) { setScope(null); return; }
+    let dead = false;
+    fetch(BACKEND + "/scope/" + jobId)
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(d => { if (!dead) { setScope(d); setErr(""); } })
+      .catch(() => { if (!dead) setScope(null); });       // older backend: panel simply doesn't appear
+    return () => { dead = true; };
+  }, [BACKEND, jobId]);
+  const setTick = async (name, next) => {
+    setBusy(name);
+    try {
+      const r = await fetch(BACKEND + "/set-scope", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId, groups: { [name]: next } }) });
+      if (!r.ok) throw new Error(r.status);
+      const d = await r.json();
+      setScope(d); setErr("");
+      // the server hands back the whole takeoff, so the ledger, the Budget tab and every
+      // export follow the tick in one round trip — no second fetch, no local arithmetic
+      // that could disagree with what the backend will actually export.
+      if (d.takeoffData && setResults) setResults(prev => ({ ...prev, takeoffData: d.takeoffData }));
+    } catch { setErr("Couldn't save that — your takeoff is unchanged."); }
+    setBusy("");
+  };
+  if (!scope || !(scope.groups || []).length) return null;
+  const inScope = scope.groups.filter(g => g.inScope);
+  const parked  = scope.groups.filter(g => !g.inScope);
+  return (
+    <div style={{background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",overflow:"hidden"}}>
+      <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",padding:"0.7rem 0.85rem 0.45rem",borderBottom:"1px solid #EDF2F8"}}>
+        <span style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em"}}>Scope — in this bid</span>
+        <span style={{fontSize:"0.58rem",color:"#8FA3BC",fontWeight:600}}>{inScope.length}/{scope.groups.length}</span>
+      </div>
+      <div>
+        {scope.groups.map((g,i)=>(
+          <label key={g.name} title={(g.pages||[]).length?("Pages "+g.pages.join(", ")):""}
+            style={{display:"flex",alignItems:"center",gap:"0.5rem",padding:"0.45rem 0.85rem",borderTop:i?"1px solid #F2F6FA":"none",
+                    cursor:busy?"wait":"pointer",background:g.inScope?"#fff":"#F8FAFC",opacity:busy===g.name?0.5:1}}>
+            <input type="checkbox" checked={!!g.inScope} disabled={!!busy}
+                   onChange={e=>setTick(g.name, e.target.checked)}
+                   style={{accentColor:BLUE,width:14,height:14,flexShrink:0,cursor:"inherit"}}/>
+            <span style={{fontSize:"0.68rem",fontWeight:500,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
+                          color:g.inScope?"#3D4E63":"#94A3B8",textDecoration:g.inScope?"none":"line-through"}}>{g.name}</span>
+            <span style={{fontSize:"0.7rem",fontWeight:700,fontVariantNumeric:"tabular-nums",color:g.inScope?"#122A45":"#B6C2D1"}}>{Math.round(g.sf).toLocaleString()}</span>
+          </label>
+        ))}
+      </div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0.6rem 0.85rem",background:BLUE_PALE,borderTop:"1px solid #E3EAF3"}}>
+        <span style={{fontSize:"0.58rem",color:BLUE_DARK,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em"}}>In scope</span>
+        <span style={{fontSize:"0.85rem",fontWeight:800,color:BLUE,fontVariantNumeric:"tabular-nums"}}>{Math.round(scope.inScopeSF||0).toLocaleString()} SF</span>
+      </div>
+      {parked.length>0&&(
+        <div style={{padding:"0.55rem 0.85rem 0.7rem",borderTop:"1px solid #F2F6FA",background:"#FBFCFE"}}>
+          <div style={{fontSize:"0.56rem",color:"#8FA3BC",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"0.35rem"}}>
+            Parked — out of this bid ({Math.round(scope.parkedSF||0).toLocaleString()} SF)
+          </div>
+          {parked.map(g=>(
+            <div key={g.name} style={{display:"flex",alignItems:"center",gap:"0.4rem",padding:"0.2rem 0"}}>
+              <span style={{fontSize:"0.64rem",color:"#94A3B8",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.name} · {Math.round(g.sf).toLocaleString()} SF</span>
+              <button onClick={()=>setTick(g.name,true)} disabled={!!busy}
+                style={{fontSize:"0.56rem",fontWeight:700,color:BLUE,background:"#fff",border:"1px solid "+BLUE+"40",borderRadius:6,padding:"0.15rem 0.45rem",cursor:busy?"wait":"pointer",flexShrink:0}}>Restore</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {err&&<div style={{fontSize:"0.58rem",color:"#B42318",padding:"0.35rem 0.85rem"}}>{err}</div>}
+      <div style={{fontSize:"0.56rem",color:"#8FA3BC",padding:"0.45rem 0.85rem 0.65rem",lineHeight:1.4,borderTop:"1px solid #F2F6FA"}}>
+        Untick what another trade is bidding. Parked groups leave the total, the Excel and the evidence PDF — they stay on the drawing and restore in one click. Nothing is deleted.
+      </div>
+    </div>
+  );
 }
 
 function ScopeSection({ title, tone, children }) {
@@ -2085,6 +2506,10 @@ export default function BFSEstimator() {
   const [bucketShapes, setBucketShapes] = useState([]); // walls the estimator bucket-added (fix AI misses) — lifted so they COUNT in the total, Budget & exports
   const [bucketColorNames, setBucketColorNames] = useState({}); // color -> material name (his Bluebeam habit: cyan IS PNL-1) — lifted, saves with the bid
   const [scopeResult, setScopeResult] = useState(null); // Scope tab's analysis — lifted so it survives tab switches AND pre-checks the Takeoff's materials (specs decide what's ours)
+  // REVIEW QUEUE progress: {"<page>::<materialName>": {at, sf, reader}}. A RECORD OF ATTENTION,
+  // never a number — no total, price, Excel or evidence line reads it. Lifted so walking the
+  // queue survives a tab switch and saves/restores with the bid like every other per-job mark.
+  const [reviewConfirmed, setReviewConfirmed] = useState({});
 
   // ── UI polish: load real fonts + global interactions (the app referenced 'Inter' but never loaded it) ──
   useEffect(() => {
@@ -2163,7 +2588,7 @@ export default function BFSEstimator() {
 
   const handleFile = f => {
     if(f?.type==="application/pdf"){
-      setFile(f); setPhase("idle"); setResults(null); setLog([]); setErrMsg(""); seenLogs.current=0;
+      setFile(f); setPhase("idle"); setResults(null); setLog([]); setErrMsg(""); seenLogs.current=0; setReviewConfirmed({});
     }
   };
 
@@ -2172,6 +2597,7 @@ export default function BFSEstimator() {
     if(!r) return;
     setResults(r); setAssignments(r.assignments||{}); setErrMsg("");
     setHiddenIds(r.hiddenIds||{}); setDeletedStack(r.deletedStack||[]); setBucketShapes(r.bucketShapes||[]);
+    setReviewConfirmed(r.reviewConfirmed||{});   // review progress is per JOB — never inherited
     setPricing(p=>({...p, sfOverride:{}, customLines:[]}));  // fresh job → fresh per-job numbers
     setPhase("done"); setProgress({ label:"Complete", pct:100 });
     setAppTab("takeoff");
@@ -2266,7 +2692,7 @@ export default function BFSEstimator() {
     const id=results.jobId||String(Date.now());
     const rec={ id, projName:results.projName, savedAt:Date.now(),
       data:{ legend:results.legend, takeoffData:results.takeoffData, scheduleData:results.scheduleData||null, drawingSchedule:results.drawingSchedule||null, ocrMaterials:results.ocrMaterials||null, pageCount:results.pageCount||0, projName:results.projName, jobId:results.jobId },
-      assignments, pricing, hiddenIds, deletedStack, groupRename, bucketShapes, bucketColorNames, scopeResult };
+      assignments, pricing, hiddenIds, deletedStack, groupRename, bucketShapes, bucketColorNames, scopeResult, reviewConfirmed };
     try{ localStorage.setItem("bfs_bid_"+id, JSON.stringify(rec)); refreshSaved(); }
     catch(e){ alert("Could not save bid: "+e.message); }
   };
@@ -2274,6 +2700,7 @@ export default function BFSEstimator() {
     setResults(rec.data); setAssignments(rec.assignments||{});
     setPricing(rec.pricing||{rates:{},wastePct:15,marginPct:20});
     setHiddenIds(rec.hiddenIds||{}); setDeletedStack(rec.deletedStack||[]); setGroupRename(rec.groupRename||{}); setBucketShapes(rec.bucketShapes||[]); setBucketColorNames(rec.bucketColorNames||{});
+    setReviewConfirmed(rec.reviewConfirmed||{});
     if(rec.scopeResult) setScopeResult(rec.scopeResult);
     setPhase("done"); setViewMode("table"); setFile(null);
   };
@@ -2481,7 +2908,7 @@ export default function BFSEstimator() {
               <button onClick={exportExcel} style={{padding:"0.45rem 0.95rem",background:"#fff",color:BLUE,border:`1px solid ${BLUE}40`,borderRadius:8,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer",transition:"all 0.18s ease-out"}}>↓ Excel</button>
               <button onClick={exportPDF} disabled={pdfLoading} style={{padding:"0.45rem 0.95rem",background:BLUE,color:"#fff",border:"none",borderRadius:8,fontSize:"0.72rem",fontWeight:700,fontFamily:"inherit",cursor:"pointer",boxShadow:"0 2px 8px rgba(27,79,138,0.25)",transition:"all 0.18s ease-out"}}>↓ {pdfLoading?"Generating...":"Evidence PDF"}</button>
               <button onClick={saveBid} style={{padding:"0.45rem 0.95rem",background:"#fff",color:BLUE,border:`1px solid ${BLUE}40`,borderRadius:8,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer",transition:"all 0.18s ease-out"}}>💾 Save</button>
-              <button onClick={()=>{setFile(null);setPhase("idle");setResults(null);setLog([]);setAssignments({});setHiddenIds({});setDeletedStack([]);setBucketShapes([]);}} style={{padding:"0.45rem 0.95rem",background:"#F1F5F9",color:"#64748B",border:"1px solid #E2E8F0",borderRadius:8,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer",transition:"all 0.18s ease-out"}}>↺ New</button>
+              <button onClick={()=>{setFile(null);setPhase("idle");setResults(null);setLog([]);setAssignments({});setHiddenIds({});setDeletedStack([]);setBucketShapes([]);setReviewConfirmed({});}} style={{padding:"0.45rem 0.95rem",background:"#F1F5F9",color:"#64748B",border:"1px solid #E2E8F0",borderRadius:8,fontSize:"0.72rem",fontWeight:600,fontFamily:"inherit",cursor:"pointer",transition:"all 0.18s ease-out"}}>↺ New</button>
             </div>
           )}
         </div>
@@ -2835,6 +3262,11 @@ export default function BFSEstimator() {
               </div>
             )}
 
+            {/* THE SCOPE GATE — she ticks what this bid covers; parked groups leave the
+                totals and exports but stay on the drawing. All ticked by default, so a job
+                she never touches is unchanged. */}
+            {results?.jobId&&<ScopePanel BACKEND={BACKEND} jobId={results.jobId} setResults={setResults}/>}
+
             {/* SCOPE CHECK — the Scope tab's conclusions pre-check the detected materials */}
             {scopeCheck&&(
               <div style={{background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",overflow:"hidden",animation:"bfsFadeUp .45s ease-out both",animationDelay:".12s"}}>
@@ -2997,7 +3429,7 @@ export default function BFSEstimator() {
           {/* Main */}
           <main style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
             {viewMode==="interactive"&&(
-              <div style={{flex:1,overflow:"hidden"}}><InteractiveView results={results} BACKEND={BACKEND} assignments={assignments} setAssignments={setAssignments} groupRename={groupRename} setGroupRename={setGroupRename} setResults={setResults} hiddenIds={hiddenIds} setHiddenIds={setHiddenIds} deletedStack={deletedStack} setDeletedStack={setDeletedStack} bucketShapes={bucketShapes} setBucketShapes={setBucketShapes} bucketColorNames={bucketColorNames} setBucketColorNames={setBucketColorNames}/></div>
+              <div style={{flex:1,overflow:"hidden"}}><InteractiveView results={results} BACKEND={BACKEND} assignments={assignments} setAssignments={setAssignments} groupRename={groupRename} setGroupRename={setGroupRename} setResults={setResults} hiddenIds={hiddenIds} setHiddenIds={setHiddenIds} deletedStack={deletedStack} setDeletedStack={setDeletedStack} bucketShapes={bucketShapes} setBucketShapes={setBucketShapes} bucketColorNames={bucketColorNames} setBucketColorNames={setBucketColorNames} reviewConfirmed={reviewConfirmed} setReviewConfirmed={setReviewConfirmed}/></div>
             )}
             {viewMode==="edit"&&(
               <div style={{flex:1,overflow:"hidden"}}><EditorView results={results} BACKEND={BACKEND} setResults={setResults}/></div>
