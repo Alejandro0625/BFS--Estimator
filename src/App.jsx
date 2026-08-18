@@ -845,7 +845,8 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     // the LIVE zone owns the numbers (an accepted suggestion, a park, or her own net all
     // land there first); the server row owns the ranking, the pieces and the zone key
     return z ? {...r, netArea:z.netArea||0, grossArea:z.grossArea,
-                netAreaAuto:z.netAreaAuto, netOverride:!!z.netOverride, live:true} : null;
+                netAreaAuto:z.netAreaAuto, netOverride:!!z.netOverride, live:true,
+                grossSF:z.grossSF, openingSF:z.openingSF, openingsSuggested:z.openingsSuggested, netSuggested:z.netSuggested} : null;
   }).filter(Boolean).filter(r=>(r.netArea||0)>0);
   if(queue.status==="ok") (results.takeoffData||[]).forEach(e=>{ (e.zones||[]).forEach(z=>{
     // ⚠ THE SAME KEY the server's rows were marked with. It used to be spelled "::" in
@@ -858,6 +859,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     queueRows.push({page:e.pageNumber,materialName:z.materialName,netArea:z.netArea,
       zoneKey:z.material_group||z.materialName,pieces:[],pieceCount:0,
       grossArea:z.grossArea,netAreaAuto:z.netAreaAuto,netOverride:!!z.netOverride,
+      grossSF:z.grossSF,openingSF:z.openingSF,openingsSuggested:z.openingsSuggested,netSuggested:z.netSuggested,
       readerClass:z.readerClass,reader:z.reader,reviewRank:z.reviewRank,reviewRisk:z.reviewRisk,
       reviewRate:z.reviewRate,reviewWhy:z.reviewWhy,live:true,added:true});
   }); });
@@ -1154,6 +1156,20 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
               {r.netOverride&&<button onClick={()=>{setNetDraft("");saveNet(r,"");}} title="back to the drawn SF" style={{border:"none",background:"transparent",color:"#64748B",cursor:"pointer",fontSize:"0.62rem",padding:0}}>↩</button>}
               {netBusy&&<span style={{fontSize:"0.55rem",color:"#64748B"}}>…</span>}
             </span>
+            {/* ── NET-ASSIST (Feature 1). The reader already detected these windows/doors and cut
+                 them out of the drawn SF; we SURFACE that so the deduction is visible and one click
+                 PRE-FILLS the NET field with gross − openings. It never saves on its own (FIX_OPENINGS:
+                 an opening deduction may be SHOWN, never auto-applied — Enter in the field books it). */}
+            {(r.openingsSuggested>0 || (r.grossSF||0)>(r.netArea||0)+0.5)&&(
+              <span style={{display:"flex",alignItems:"center",gap:"0.3rem",fontSize:"0.58rem",color:"#9FB8D4",background:"#0E2136",border:"1px dashed #2D5280",borderRadius:20,padding:"0.1rem 0.45rem"}}
+                    title="Openings the reader detected and already cut out of the drawn SF. Shown so the deduction is visible — nothing here changes your number until you set it.">
+                <span style={{color:"#7FB0E0",fontWeight:700,letterSpacing:"0.04em"}}>OPENINGS</span>
+                <span>gross {Math.round(r.grossSF||0).toLocaleString()} · {r.openingsSuggested||0} opening{(r.openingsSuggested||0)===1?"":"s"} −{Math.round(r.openingSF||0).toLocaleString()} SF · net {Math.round(r.netSuggested||0).toLocaleString()}</span>
+                <button onClick={()=>{setNetDraft(String(Math.round(r.netSuggested||0)));setNetMsg("pre-filled — press Enter to set, or edit it first");}}
+                        title="Put gross − openings in the NET field. It does not save until you press Enter — you can still edit it."
+                        style={{border:"1px solid #2D5280",background:NAVY_LT,color:"#7FE7E0",borderRadius:5,padding:"0.12rem 0.4rem",fontSize:"0.56rem",fontWeight:800,fontFamily:"inherit",cursor:"pointer"}}>use net {Math.round(r.netSuggested||0).toLocaleString()}</button>
+              </span>
+            )}
             <div style={{marginLeft:"auto",display:"flex",gap:"0.35rem",alignItems:"center"}}>
               <button onClick={()=>stepQueue(-1)} disabled={qIdx===0} style={{padding:"0.28rem 0.5rem",borderRadius:6,border:"1px solid #2D5280",background:NAVY_LT,color:qIdx===0?"#475569":"#94A3B8",fontSize:"0.62rem",fontFamily:"inherit",cursor:qIdx===0?"default":"pointer"}}>◂</button>
               <button onClick={()=>done?unconfirmRow(qIdx):confirmRow(qIdx)} style={{padding:"0.32rem 0.8rem",borderRadius:7,border:"none",background:done?"#14532D":"linear-gradient(180deg,#34D399,#10B981)",color:done?"#86EFAC":"#06283D",fontSize:"0.66rem",fontWeight:800,fontFamily:"inherit",cursor:"pointer"}}>{done?"✓ confirmed — undo":"✓ Confirm & next"}</button>
