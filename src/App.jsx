@@ -1,6 +1,7 @@
 // BFS AI Estimator — UI build v2 (bigger header, cross-tab gradient design)
 import { useState, useRef, useEffect, useCallback } from "react";
 import * as XLSX from "xlsx";
+import SuggestedPricingView from "./SuggestedPricing.jsx";
 import { Stage, Layer, Line, Circle, Image as KImage } from "react-konva";
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || "";
@@ -3268,7 +3269,7 @@ export default function BFSEstimator() {
         </div>
         {/* Primary nav: Estimator (job workspace incl. pricing) · Scope Reader */}
         <nav style={{display:"flex",gap:"0.4rem",height:"100%"}}>
-          {[["estimator","Estimator",["takeoff","queue","manual","model","budget"]],["scope","Scope Reader",["scope"]]].map(([key,label,members])=>{
+          {[["estimator","Estimator",["takeoff","queue","manual","model","budget","pricing"]],["scope","Scope Reader",["scope"]]].map(([key,label,members])=>{
             const active=members.includes(appTab);
             return (
               <button key={key} onClick={()=>setAppTab(members[0])}
@@ -3293,9 +3294,9 @@ export default function BFSEstimator() {
       </header>
       {/* Estimator inner rail — CENTERED like the top nav; per-job tools incl. pricing;
           dark-blue type so it reads against any canvas */}
-      {["takeoff","queue","manual","model","budget"].includes(appTab)&&(
+      {["takeoff","queue","manual","model","budget","pricing"].includes(appTab)&&(
         <div style={{background:"#FFFFFF",borderBottom:"1px solid #E3EAF3",padding:"0 2rem",display:"flex",justifyContent:"center",gap:"0.3rem",flexShrink:0,zIndex:9}}>
-          {[["takeoff","Takeoff"],["queue","Queue"],["manual","Draw"],["model","Model"],["budget","Suggested Pricing"]].map(([t,label])=>(
+          {[["takeoff","Takeoff"],["queue","Queue"],["manual","Draw"],["model","Model"],["budget","Suggested Pricing"],["pricing","Won-Bid Pricing"]].map(([t,label])=>(
             <button key={t} onClick={()=>setAppTab(t)}
               style={{padding:"0.55rem 1rem",border:"none",background:"transparent",cursor:"pointer",fontFamily:"inherit",
                       fontSize:"0.74rem",fontWeight:appTab===t?700:600,color:appTab===t?BLUE:BLUE_DARK,
@@ -3308,6 +3309,7 @@ export default function BFSEstimator() {
 
       {appTab==="scope"&&<ScopeView result={scopeResult} setResult={setScopeResult}/>}
       {appTab==="model"&&<ModelView/>}
+      {appTab==="pricing"&&<SuggestedPricingView results={results} priceRows={priceRows} linearRollup={linearRollup} buildExcel={buildExcel}/>}
       {appTab==="budget"&&(()=>{
         const suggestRate=(cat,sf)=>suggestRateCore(cat,sf,bidGc.company,parseFloat(bidGc.height)||0);
         return (
