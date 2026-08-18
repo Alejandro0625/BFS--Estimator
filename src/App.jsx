@@ -1864,6 +1864,91 @@ function ScopePanel({ BACKEND, jobId, setResults }) {
   );
 }
 
+function PageScopePanel({ BACKEND, jobId, setResults }) {
+  // Sibling of ScopePanel, keyed on pageNumber instead of material group: untick a whole
+  // sheet another trade owns, or a civil / 3D / needs-review page the engine flagged.
+  // All pages in by default (identity); we only PRE-HIGHLIGHT engine-flagged pages, never
+  // pre-uncheck — she decides. On toggle the server hands back the whole takeoff, so the
+  // ledger, Budget tab and every export follow in one round trip, exactly like ScopePanel.
+  const [ps, setPs] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    if (!jobId) { setPs(null); return; }
+    let dead = false;
+    fetch(BACKEND + "/page-scope/" + jobId)
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(d => { if (!dead) { setPs(d); setErr(""); } })
+      .catch(() => { if (!dead) setPs(null); });          // older backend: panel simply doesn't appear
+    return () => { dead = true; };
+  }, [BACKEND, jobId]);
+  const setTick = async (pn, next) => {
+    setBusy(pn);
+    try {
+      const r = await fetch(BACKEND + "/set-page-scope", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId, pages: { [String(pn)]: next } }) });
+      if (!r.ok) throw new Error(r.status);
+      const d = await r.json();
+      setPs(d); setErr("");
+      if (d.takeoffData && setResults) setResults(prev => ({ ...prev, takeoffData: d.takeoffData }));
+    } catch { setErr("Couldn't save that — your takeoff is unchanged."); }
+    setBusy(null);
+  };
+  if (!ps || !(ps.pages || []).length) return null;
+  const flagOf = p => p.threeDDemoted ? { t: "3D", c: "#7C3AED" }
+    : p.siteScaleDemoted ? { t: "site", c: "#B45309" }
+    : p.needsReview ? { t: "verify scale", c: "#B45309" } : null;
+  const parked = ps.pages.filter(p => !p.inScope);
+  const inScope = ps.pages.filter(p => p.inScope);
+  return (
+    <div style={{background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",overflow:"hidden"}}>
+      <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",padding:"0.7rem 0.85rem 0.45rem",borderBottom:"1px solid #EDF2F8"}}>
+        <span style={{fontSize:"0.6rem",color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em"}}>Pages — in this bid</span>
+        <span style={{fontSize:"0.58rem",color:"#8FA3BC",fontWeight:600}}>{inScope.length}/{ps.pages.length}</span>
+      </div>
+      <div>
+        {ps.pages.map((p,i)=>{
+          const fl = flagOf(p);
+          return (
+          <label key={p.pageNumber} title={p.title||("Page "+p.pageNumber)}
+            style={{display:"flex",alignItems:"center",gap:"0.5rem",padding:"0.45rem 0.85rem",borderTop:i?"1px solid #F2F6FA":"none",
+                    cursor:busy?"wait":"pointer",background:p.inScope?(fl?"#FFFBF3":"#fff"):"#F8FAFC",opacity:busy===p.pageNumber?0.5:1}}>
+            <input type="checkbox" checked={!!p.inScope} disabled={busy!==null}
+                   onChange={e=>setTick(p.pageNumber, e.target.checked)}
+                   style={{accentColor:BLUE,width:14,height:14,flexShrink:0,cursor:"inherit"}}/>
+            <span style={{fontSize:"0.68rem",fontWeight:600,flexShrink:0,fontVariantNumeric:"tabular-nums",color:p.inScope?"#3D4E63":"#94A3B8",minWidth:34}}>{p.sheetRef||("p"+p.pageNumber)}</span>
+            {fl&&<span style={{fontSize:"0.5rem",fontWeight:800,color:"#fff",background:fl.c,borderRadius:5,padding:"0.05rem 0.3rem",flexShrink:0,textTransform:"uppercase",letterSpacing:"0.04em"}}>{fl.t}</span>}
+            <span style={{flex:1}}/>
+            <span style={{fontSize:"0.7rem",fontWeight:700,fontVariantNumeric:"tabular-nums",color:p.inScope?"#122A45":"#B6C2D1",textDecoration:p.inScope?"none":"line-through"}}>{Math.round(p.detectedSF).toLocaleString()}</span>
+          </label>
+        );})}
+      </div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0.6rem 0.85rem",background:BLUE_PALE,borderTop:"1px solid #E3EAF3"}}>
+        <span style={{fontSize:"0.58rem",color:BLUE_DARK,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em"}}>Pages in scope</span>
+        <span style={{fontSize:"0.85rem",fontWeight:800,color:BLUE,fontVariantNumeric:"tabular-nums"}}>{Math.round(ps.inScopeSF||0).toLocaleString()} SF</span>
+      </div>
+      {parked.length>0&&(
+        <div style={{padding:"0.55rem 0.85rem 0.7rem",borderTop:"1px solid #F2F6FA",background:"#FBFCFE"}}>
+          <div style={{fontSize:"0.56rem",color:"#8FA3BC",fontWeight:800,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"0.35rem"}}>
+            Parked — out of this bid ({Math.round(ps.parkedSF||0).toLocaleString()} SF)
+          </div>
+          {parked.map(p=>(
+            <div key={p.pageNumber} style={{display:"flex",alignItems:"center",gap:"0.4rem",padding:"0.2rem 0"}}>
+              <span style={{fontSize:"0.64rem",color:"#94A3B8",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.sheetRef||("p"+p.pageNumber)} · {Math.round(p.detectedSF).toLocaleString()} SF</span>
+              <button onClick={()=>setTick(p.pageNumber,true)} disabled={busy!==null}
+                style={{fontSize:"0.56rem",fontWeight:700,color:BLUE,background:"#fff",border:"1px solid "+BLUE+"40",borderRadius:6,padding:"0.15rem 0.45rem",cursor:busy?"wait":"pointer",flexShrink:0}}>Restore</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {err&&<div style={{fontSize:"0.58rem",color:"#B42318",padding:"0.35rem 0.85rem"}}>{err}</div>}
+      <div style={{fontSize:"0.56rem",color:"#8FA3BC",padding:"0.45rem 0.85rem 0.65rem",lineHeight:1.4,borderTop:"1px solid #F2F6FA"}}>
+        Untick a whole sheet another trade owns, or a highlighted civil / 3D / needs-review page. Parked pages leave the total, the Excel and the evidence PDF — they stay on the drawing and restore in one click. Nothing is deleted. All pages are in by default.
+      </div>
+    </div>
+  );
+}
+
 function MaterialsPanel({ BACKEND, jobId, setResults }) {
   const [mats, setMats] = useState(null);
   const [draft, setDraft] = useState({});     // group -> in-progress text
@@ -3543,6 +3628,7 @@ export default function BFSEstimator() {
                 totals and exports but stay on the drawing. All ticked by default, so a job
                 she never touches is unchanged. */}
             {results?.jobId&&<ScopePanel BACKEND={BACKEND} jobId={results.jobId} setResults={setResults}/>}
+            {results?.jobId&&<PageScopePanel BACKEND={BACKEND} jobId={results.jobId} setResults={setResults}/>}
             {results?.jobId&&<MaterialsPanel BACKEND={BACKEND} jobId={results.jobId} setResults={setResults}/>}
 
             {/* SCOPE CHECK — the Scope tab's conclusions pre-check the detected materials */}
