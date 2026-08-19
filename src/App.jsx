@@ -388,7 +388,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   // just deleted leaves the queue at once. It books nothing: confirming marks a row done and
   // changes no SF, no total and no export — identity by default.
   const [rail, setRail] = useState("elev");                 // left rail: elevations | queue
-  const [queue, setQueue] = useState({status:"idle",zones:[],pages:[],table:null,suggestions:null,err:""});
+  const [queue, setQueue] = useState({status:"idle",zones:[],pages:[],table:null,suggestions:null,gaps:null,err:""});
   const [qIdx, setQIdx] = useState(null);                   // position while walking the queue
   const [activeMat, setActiveMat] = useState(null);         // {page, materialName} in focus
   const [openPieces, setOpenPieces] = useState(false);      // walker: expand a row into its walls
@@ -415,7 +415,18 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   // hiddenIds / deletedStack are LIFTED to the parent so deletes save + restore with the bid
   const imgRef = useRef();
   const svgRef = useRef();
-  const elevations = results.takeoffData.filter(e => e.pageNumber);
+  // A detection-gap page (an admitted elevation the engine drew nothing on) is NOT in
+  // takeoffData -- the backend dropped it -- so surface it here as a navigable, drawable
+  // pseudo-page appended AFTER the real elevations. Additive: it has no zones, so it books
+  // and totals nothing (exports read results.takeoffData, not this list); it only gives the
+  // "Go draw" row a page to open. With queue.gaps empty this is exactly the old line.
+  const _baseElevs = results.takeoffData.filter(e => e.pageNumber);
+  const _haveElevP = new Set(_baseElevs.map(e => e.pageNumber));
+  const _gapElevs = ((queue && queue.gaps) || [])
+    .filter(g => g && g.page != null && !_haveElevP.has(g.page))
+    .map(g => ({ pageNumber: g.page, title: "p." + g.page + " — elevation, no walls detected",
+                 sheetRef: g.sheetRef, detectionGap: true, zones: [] }));
+  const elevations = _gapElevs.length ? [..._baseElevs, ..._gapElevs] : _baseElevs;
   const elev = elevations[elevIdx];
   const pageNum = elev?.pageNumber;
   // this page's scale: one-click chip or 2-point calibrate sets it; same recompute path as before
@@ -436,6 +447,11 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
     fetch(BACKEND+"/snap-points/"+results.jobId+"/"+pageNum)
       .then(r=>r.ok?r.json():{points:[]}).then(d=>setSnapPts(d.points||[])).catch(()=>setSnapPts([]));
   }, [elevIdx, pageNum, results.jobId, BACKEND]);
+
+  // Detection-gap "Go draw": navigating to a gap page runs the effect above, which resets
+  // the drawing tools -- so arm add-by-corners AFTER the page settles, once per request.
+  const [armGapDraw, setArmGapDraw] = useState(false);
+  useEffect(()=>{ if(armGapDraw){ startCornerAdd(); setArmGapDraw(false); } }, [elevIdx, armGapDraw]);
 
   // the detail tier, on demand. Clamped to the sheet and never fatal: if it fails the
   // sheet-wide corners are still there and the snap works exactly as it did before.
@@ -458,13 +474,13 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
       .then(r=>r.ok?r.json():Promise.reject(new Error("HTTP "+r.status)))
       .then(d=>{
         setQueue({status:"ok",zones:d.zones||[],pages:d.pages||[],table:d.table||null,
-                  suggestions:d.suggestions||null,err:""});
+                  suggestions:d.suggestions||null,gaps:d.gaps||null,err:""});
         // review progress lives on the JOB now, not in this tab. Whatever the server
         // remembers wins on load — that is what makes a reload (or a second device, or
         // tomorrow morning) resume the walk instead of restarting the hour.
         if(d.reviewConfirmed) setReviewConfirmed(d.reviewConfirmed);
       })
-      .catch(e=>setQueue({status:"err",zones:[],pages:[],table:null,suggestions:null,err:String(e&&e.message||e)}));
+      .catch(e=>setQueue({status:"err",zones:[],pages:[],table:null,suggestions:null,gaps:null,err:String(e&&e.message||e)}));
   },[BACKEND,results.jobId,setReviewConfirmed]);
   useEffect(()=>{ loadQueue(); },[loadQueue]);
   useEffect(()=>{ setQIdx(null); setActiveMat(null); setRail("elev"); setOpenPieces(false);
@@ -823,6 +839,11 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   // ── THE QUEUE: server order + LIVE takeoff numbers ─────────────────────────────────────
   const dispName = n => (groupRename && groupRename[n]) || n;   // her rename wins in the queue too
   const pageToElev = {}; elevations.forEach((e,i)=>{ if(e.pageNumber!==undefined) pageToElev[e.pageNumber]=i; });
+  // Open a detection-gap page and arm add-by-corners. Already the current page => arm now;
+  // otherwise flag it and the effect above fires once the page-change has reset the tools.
+  const goDrawGap=(page)=>{ const ei=pageToElev[page];
+    if(ei!==undefined&&ei!==elevIdx){ setArmGapDraw(true); setElevIdx(ei); }
+    else { startCornerAdd(); } };
   const liveZone = (page,name)=>{
     const e=(results.takeoffData||[]).find(x=>x.pageNumber===page);
     return (e?.zones||[]).find(z=>z.materialName===name||z.material_group===name)||null;
@@ -1099,6 +1120,20 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
                 </div>;
               })}
             </>}
+            {/* ── Detection gaps: admitted elevations the engine drew NOTHING on ── */}
+            {Array.isArray(queue.gaps)&&queue.gaps.length>0&&(
+              <div style={{padding:"0.7rem 0.875rem",borderTop:"2px solid "+NAVY_LT,marginTop:"0.4rem"}}>
+                <div style={{fontSize:"0.6rem",letterSpacing:"0.1em",color:"#FBBF24",textTransform:"uppercase",fontWeight:800}}>⚠ Elevations · no walls detected</div>
+                <div style={{fontSize:"0.56rem",color:"#64748B",marginTop:3,lineHeight:1.5}}>These sheets read as elevations but the engine drew no cladding on them. Open one and trace the walls — nothing here is in your total.</div>
+                {queue.gaps.map(g=>(
+                  <div key={"gap"+g.page} style={{display:"flex",alignItems:"center",gap:"0.4rem",padding:"0.4rem 0",borderTop:"1px solid "+NAVY_LT}}>
+                    <span style={{fontSize:"0.68rem",fontWeight:800,color:"#FCD34D"}}>p.{g.page}</span>
+                    <span style={{fontSize:"0.56rem",color:"#94A3B8",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>elevation — no walls detected</span>
+                    <button onClick={()=>goDrawGap(g.page)} title="Open this sheet and trace the walls by their corners (they snap to the drawing's geometry)" style={{padding:"0.18rem 0.5rem",borderRadius:5,border:"none",background:"#F59E0B",color:"#3B2A05",fontSize:"0.6rem",fontWeight:800,fontFamily:"inherit",cursor:"pointer",whiteSpace:"nowrap"}}>⊹ Go draw</button>
+                  </div>
+                ))}
+              </div>
+            )}
             {/* ── Suggestions: drawn, deliberately NOT counted, one click from being real ── */}
             <div style={{padding:"0.7rem 0.875rem",borderTop:"2px solid "+NAVY_LT,marginTop:"0.4rem"}}>
               <div style={{fontSize:"0.6rem",letterSpacing:"0.1em",color:"#2ABFBF",textTransform:"uppercase",fontWeight:800}}>AI suggestions</div>
