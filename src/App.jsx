@@ -2596,12 +2596,13 @@ function QueueView({ onOpen }) {
         <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
           {items.map(it => {
             const [bc, bl] = BADGE[it.status] || BADGE.queued; const sf = it.results ? sfOf(it.results) : 0;
+            const uncal = it.results && (it.results.takeoffData||[]).some(e=>(e.zones||[]).some(z=>(z.netArea||0)>0) && (e.scaleSource==="default" || (!e.verifiedScale && !e.scale)));  // M9: a page on a default/unread scale isn't "measured" — SF could be far off
             return (
               <div key={it.id} style={{ background: "#fff", border: "1px solid #EEF2F7", borderRadius: 10, padding: "0.8rem 1rem", display: "flex", alignItems: "center", gap: "0.85rem" }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "#1E293B", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name}</div>
                   <div style={{ fontSize: "0.66rem", color: "#94A3B8", marginTop: 2 }}>
-                    {it.status === "done" ? (sf > 0 ? sf.toLocaleString() + " SF measured" : "Complete") : it.status === "error" ? (it.error || "Failed") : (it.stage || "Waiting") + (it.status === "running" ? " · " + (it.progress || 0) + "%" : "")}
+                    {it.status === "done" ? (sf > 0 ? sf.toLocaleString() + (uncal ? " SF (uncalibrated — verify)" : " SF measured") : "Complete") : it.status === "error" ? (it.error || "Failed") : (it.stage || "Waiting") + (it.status === "running" ? " · " + (it.progress || 0) + "%" : "")}
                   </div>
                   {it.status === "running" && <div style={{ height: 4, background: "#F1F5F9", borderRadius: 3, marginTop: 6, overflow: "hidden" }}><div style={{ width: (it.progress || 0) + "%", height: "100%", background: BLUE, transition: "width 0.4s" }} /></div>}
                 </div>
