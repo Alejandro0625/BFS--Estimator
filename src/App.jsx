@@ -3036,10 +3036,13 @@ export default function BFSEstimator() {
   const startPolling = useCallback((id)=>{
     if(pollRef.current) clearInterval(pollRef.current);
     seenLogs.current=0;
+    let _errs=0;   // M8: cap consecutive network errors so a dropped connection can't spin forever
     pollRef.current=setInterval(async()=>{
       try{
         const res=await fetch(BACKEND+"/status/"+id);
+        if(!res.ok){ clearInterval(pollRef.current); setErrMsg(res.status===401||res.status===403 ? "Access key expired mid-job — reopen the app with your ?key= link." : "Lost the job (server "+res.status+"). Try again."); setPhase("error"); return; }
         const data=await res.json();
+        _errs=0;
         if(data.log?.length>seenLogs.current){setLog(prev=>[...prev,...data.log.slice(seenLogs.current)]);seenLogs.current=data.log.length;}
         if(data.progress)setProgress(data.progress);
         if(data.phase)setPhase(data.phase);
@@ -3048,7 +3051,7 @@ export default function BFSEstimator() {
           setResults({legend:data.legend||[],takeoffData:data.takeoffData||[],scheduleData:data.scheduleData||null,drawingSchedule:data.drawingSchedule||null,ocrMaterials:data.ocrMaterials||null,pageCount:data.pageCount||0,projName:file?.name?.replace(".pdf","")||"Project",jobId:id});
           setPhase("done");setProgress({label:"Complete",pct:100});
         }else if(data.status==="error"){clearInterval(pollRef.current);setErrMsg(data.error||"Unknown error");setPhase("error");}
-      }catch(e){console.log("poll",e.message);}
+      }catch(e){ if(++_errs>12){ clearInterval(pollRef.current); setErrMsg("Lost connection to the server — check your network and try again."); setPhase("error"); } }
     },5000);
   },[file]);
 
@@ -3060,7 +3063,9 @@ export default function BFSEstimator() {
       setLog([{msg:"Uploading PDF...",level:"info"}]);
       const fd=new FormData();fd.append("pdf",file);
       const res=await fetch(BACKEND+"/analyze",{method:"POST",body:fd});
+      if(!res.ok){ throw new Error(res.status===401||res.status===403 ? "Access key missing or expired — reopen the app with your ?key= link (ask Alejandro for a fresh one)." : "Upload failed — server returned "+res.status+". Try again."); }  // M8: was destructuring jobId with no ok-check -> keyless visit spun forever
       const{jobId:id}=await res.json();
+      if(!id){ throw new Error("The server didn't return a job — please try again."); }
       setLog(prev=>[...prev,{msg:"Analysis started — job "+id,level:"ok"}]);
       startPolling(id);
     }catch(err){setErrMsg(err.message);setPhase("error");}
