@@ -196,14 +196,19 @@ const buildExcel = (projectName, materials, pricing) => {
   er = n10(); er[0]="No."; er[1]="ACM/ACP"; er[2]="Quantity"; er[4]="Conv"; er[5]="Rate"; er[6]="Amount"; eRows.push(er);
   eRows.push(n10());
   const amtCells = [];
+  const matFormulas = [];
   materials.forEach((mat, idx) => {
     er = n10(); er[1] = mat.name; eRows.push(er);
     const row = eRows.length + 1;
-    er = n10(); er[0]=idx+1; er[1]=mat.name; er[2]=Math.round(mat.sf*(1+waste)); er[4]=1; er[5]=mat.rate!=null?mat.rate:""; er[6]=`=C${row}*F${row}`; amtCells.push(`G${row}`); eRows.push(er);
+    const qty = Math.round(mat.sf*(1+waste));
+    const rate = mat.rate!=null?mat.rate:"";
+    const rateNum = typeof rate==="number" ? rate : 0;
+    er = n10(); er[0]=idx+1; er[1]=mat.name; er[2]=qty; er[4]=1; er[5]=rate; er[6]=qty*rateNum; amtCells.push(`G${row}`); matFormulas.push({row, v:qty*rateNum}); eRows.push(er);
   });
   while (eRows.length < 24) eRows.push(n10());
   const totalRow = eRows.length + 1;
-  er = n10(); er[1]="Total "; er[2]=materials.reduce((s,m)=>s+Math.round(m.sf*(1+waste)),0); er[6]=amtCells.length?`=${amtCells.join("+")}`:0; eRows.push(er);
+  const estTotal = matFormulas.reduce((s,m)=>s+m.v,0);
+  er = n10(); er[1]="Total "; er[2]=materials.reduce((s,m)=>s+Math.round(m.sf*(1+waste)),0); er[6]=estTotal; eRows.push(er);
   eRows.push(n10());
   er = n10(); er[0]="PANEL BACK-UP SYSTEM- Z-Girts, Hat Channel, Insulation"; eRows.push(er);
   eRows.push(n10());
@@ -213,6 +218,9 @@ const buildExcel = (projectName, materials, pricing) => {
   eRows.push(n10());
   ["GC","Location","Profit/Non-Profit","Taxable/Non-Taxable","Prevailing Wage","Drawing Set","Building Height"].forEach(f=>{er=n10();er[0]=f;eRows.push(er);});
   const wsE = XLSX.utils.aoa_to_sheet(eRows);
+  // B2 FIX: aoa_to_sheet stores leading-"=" strings as TEXT — write Amount/TOTAL as real formula cells (with cached value so non-recalculating viewers still show $).
+  matFormulas.forEach(({row,v})=>{ wsE["G"+row]={t:"n",f:`C${row}*F${row}`,v}; });
+  wsE["G"+totalRow]= amtCells.length ? {t:"n",f:amtCells.join("+"),v:estTotal} : {t:"n",v:0};
   wsE["!cols"]=[5.14,57.43,11.86,4.14,5.43,12.86,12.43].map(w=>({wch:w}));
   wsE["!merges"]=[{s:{r:0,c:0},e:{r:1,c:7}},{s:{r:2,c:0},e:{r:2,c:7}},{s:{r:3,c:0},e:{r:3,c:6}},{s:{r:totalRow-1,c:0},e:{r:totalRow-1,c:9}},{s:{r:eRows.length-8,c:0},e:{r:eRows.length-8,c:6}}];
   XLSX.utils.book_append_sheet(wb, wsE, "Estimate");
@@ -243,7 +251,9 @@ const buildExcel = (projectName, materials, pricing) => {
   pr=n11(); pr[1]='*** all contracts to have "BPS conditions for Metal Panels/Siding" attached.'; pRows.push(pr);
   pRows.push(n11());
   pr=n11(); pr[0]="We propose hereby to furnish materials and labor - complete in accordance with above specifications for the sum of:"; pRows.push(pr);
-  pr=n11(); pr[7]="TOTAL:"; pr[8]=margin?`=Estimate!G${totalRow}*${(1+margin).toFixed(4)}`:`=Estimate!G${totalRow}`; pRows.push(pr);
+  const propTotalRow = pRows.length + 1;
+  const propTotal = estTotal*(1+margin);
+  pr=n11(); pr[7]="TOTAL:"; pr[8]=propTotal; pRows.push(pr);
   pr=n11(); pr[0]="Payment to be made as follows:"; pr[4]="AIA Format"; pRows.push(pr);
   pr=n11(); pr[6]="Akshita Patel"; pRows.push(pr);
   pr=n11(); pr[7]="Authorized Signature"; pRows.push(pr);
@@ -251,6 +261,8 @@ const buildExcel = (projectName, materials, pricing) => {
   pr=n11(); pr[0]="Acceptance of Proposal — The above prices, specifications and conditions are satisfactory and hereby accepted."; pRows.push(pr);
   pr=n11(); pr[3]="Date:"; pr[7]="Signature"; pRows.push(pr);
   const wsP = XLSX.utils.aoa_to_sheet(pRows);
+  // B2 FIX: proposal TOTAL as a real formula cell referencing the Estimate total (with cached value).
+  wsP["I"+propTotalRow]={t:"n",f: margin?`Estimate!G${totalRow}*${(1+margin).toFixed(4)}`:`Estimate!G${totalRow}`, v:propTotal};
   wsP["!cols"]=[7.14,9.14,12,12,16.71,9.57,9.14,12,12,12,12].map(w=>({wch:w}));
   wsP["!merges"]=[{s:{r:0,c:5},e:{r:0,c:10}},{s:{r:1,c:6},e:{r:1,c:7}},{s:{r:2,c:5},e:{r:2,c:10}},{s:{r:3,c:5},e:{r:3,c:10}},{s:{r:4,c:5},e:{r:4,c:10}},{s:{r:5,c:5},e:{r:5,c:10}},{s:{r:6,c:5},e:{r:6,c:10}},{s:{r:7,c:5},e:{r:7,c:10}},{s:{r:8,c:5},e:{r:8,c:10}},{s:{r:9,c:5},e:{r:9,c:10}},{s:{r:10,c:5},e:{r:10,c:10}},{s:{r:pRows.length-4,c:0},e:{r:pRows.length-3,c:5}}];
   XLSX.utils.book_append_sheet(wb, wsP, "Proposal");
