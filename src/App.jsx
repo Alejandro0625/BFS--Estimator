@@ -3258,11 +3258,20 @@ export default function BFSEstimator() {
       (perPageByCat[k]=perPageByCat[k]||{})[pg]=(perPageByCat[k][pg]||0)+(z.netArea||0);
     }));
     Object.entries(bucketByMat||{}).forEach(([k,sf])=>{if(sf>0){(perPageByCat[k]=perPageByCat[k]||{})[0]=(perPageByCat[k][0]||0)+sf;}});
+    const _mf=1+(pricing.marginPct||0)/100;  // B1: fold waste+margin into the SELL rate (qty stays net SF); the server sums qty*rate so the proposal TOTAL == the on-screen budgetTotal
     const materials=priceRows.map((r,i)=>{
+      const _fold=(1+(r.wastePct||0)/100)*_mf;
       const sug=suggestRateCore(r.cat,r.adjSF,bidGc.company,parseFloat(bidGc.height)||0);
-      return {code:"M"+(i+1),desc:r.cat,per_page:perPageByCat[r.cat]||{1:Math.round(r.net)},rate:r.rate,unit:"sf",
-              suggest:sug?{lo:sug.lo,med:sug.med,hi:sug.hi}:undefined};
+      return {code:"M"+(i+1),desc:r.cat,per_page:perPageByCat[r.cat]||{1:Math.round(r.net)},rate:+(((r.rate||0)*_fold).toFixed(4)),unit:"sf",
+              suggest:sug?{lo:sug.lo*_fold,med:sug.med*_fold,hi:sug.hi*_fold}:undefined};
     });
+    lfRows.forEach((r,j)=>{ if((r.lf||0)>0) materials.push({code:"L"+(j+1),desc:(r.material||"Trim")+" (per LF)",per_page:{1:Math.round(r.lf)},rate:+(((r.rate||0)*_mf).toFixed(4)),unit:"lf"}); });
+    customLines.filter(l=>(l.name||l.rate)&&(l.qty||0)>0).forEach((l,k)=>{ materials.push({code:"X"+(k+1),desc:l.name||"Line item",per_page:{1:Math.round(l.qty)},rate:+(((l.rate||0)*_mf).toFixed(4)),unit:"ea"}); });
+    // B1 RECONCILIATION GUARD — the letterhead bid must equal the on-screen total and fit the 6-row template; block otherwise so a wrong or truncated bid can never ship.
+    const _CAP=6;
+    const _ptot=materials.reduce((s,m)=>s+Object.values(m.per_page).reduce((a,b)=>a+(+b||0),0)*(m.rate||0),0);
+    if(materials.length>_CAP){ alert(materials.length+" line items, but the letterhead proposal template holds "+_CAP+". Use “↓ Export Budget Excel” instead — it includes every line, with waste and margin."); return; }
+    if(budgetTotal>0 && Math.abs(_ptot-budgetTotal)>Math.max(1,budgetTotal*0.003)){ alert("Proposal total $"+Math.round(_ptot).toLocaleString()+" ≠ the on-screen total $"+Math.round(budgetTotal).toLocaleString()+". Export blocked to prevent a wrong bid — use “Export Budget Excel” and flag this."); return; }
     const payload={date:new Date().toLocaleDateString("en-US"),job_name:results.projName||"",
       job_number:bidGc.job_number||"",estimator:bidGc.estimator||"",height:bidGc.height||"",
       gc:{contact:bidGc.contact,company:bidGc.company,city:bidGc.city,email:bidGc.email,phone:bidGc.phone},
