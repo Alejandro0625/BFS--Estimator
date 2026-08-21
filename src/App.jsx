@@ -410,6 +410,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
   // fallback for a backend that predates the index.
   const [sugScan, setSugScan] = useState({status:"idle",done:0,total:0,items:[],err:""});
   const [acceptBusy, setAcceptBusy] = useState(null);
+  const [acceptStack, setAcceptStack] = useState([]);   // M11a: accepted suggestions, newest last — for one-click undo
   // Her NET, per zone (STEP 4). The machine's draft is shown struck through beside it.
   const [netDraft, setNetDraft] = useState("");             // the field's text while she types
   const [netBusy, setNetBusy] = useState(false);
@@ -1057,6 +1058,25 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
         // the accepted piece keeps the RISK of the reader that drew it — the server hands
         // that class back so the confirmation line can say which reader she just trusted
         if(d.readerClass) setSnapMsg(`✓ added ${Math.round(d.accepted_sf||0).toLocaleString()} SF · ${readerLabel(d.readerClass)}`);
+        setAcceptStack(st=>[...st,{page,pieceId}]);
+        loadQueue();
+      }
+    }catch(e){}
+    setAcceptBusy(null);
+  };
+  // M11a: reverse the most recent accept. The server puts the piece back to a suggestion and
+  // returns the rebuilt zones, so the total drops back exactly; guarded server-side so a real
+  // detected wall can never be un-booked.
+  const undoAccept = async()=>{
+    const last=acceptStack[acceptStack.length-1]; if(!last) return;
+    setAcceptBusy("undo");
+    try{
+      const r=await fetch(BACKEND+"/accept-suggestion",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page:last.page,pieceId:last.pieceId,undo:true})});
+      if(r.ok){
+        const d=await r.json();
+        if(last.page===pageNum) setPagePolygons(prev=>prev.map(p=>p.id===last.pieceId?{...p,suggest_only:true,material:"AI wall (suggested)",category:"AI wall (suggested)",group:"AI wall (suggested)"}:p));
+        if(setResults) setResults(prev=>({...prev,takeoffData:(prev.takeoffData||[]).map(e=>e.pageNumber===last.page?{...e,zones:d.zones}:e)}));
+        setAcceptStack(st=>st.slice(0,-1));
         loadQueue();
       }
     }catch(e){}
@@ -1263,6 +1283,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
           </div>}
           {bucketMode&&cornerMode&&(snapPts.length>0||detailSnaps.length>0)&&<div style={{fontSize:"0.62rem",color:"#FCD34D",padding:"0.3rem 0.6rem",borderRadius:20,background:"#3B2A05",border:"1px solid #92400E"}}>⊕ snapping to {(snapPts.length+detailSnaps.length).toLocaleString()} drawing corners{detailSnaps.length?` (${detailSnaps.length.toLocaleString()} close-in)`:""}{hoverSnap?" · locked: "+hoverSnap.kind:""}</div>}
           {deletedStack.length>0&&<button onClick={undoDelete} style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid #B45309",background:"#451A03",color:"#FCD34D",cursor:"pointer",fontFamily:"inherit"}}>↩ Undo delete ({deletedStack.length})</button>}
+          {acceptStack.length>0&&<button onClick={undoAccept} style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid #0E7490",background:"#062A2E",color:"#7FE7E0",cursor:"pointer",fontFamily:"inherit"}}>↩ Undo accept ({acceptStack.length})</button>}
           <button onClick={()=>{setCalibMode(m=>!m);setCalibPts([]);}} style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid "+(calibMode?"#EF4444":"#2D5280"),background:calibMode?"#7F1D1D":NAVY_LT,color:calibMode?"#FCA5A5":"#94A3B8",cursor:"pointer",fontFamily:"inherit"}}>📏 {calibMode?(calibPts.length<2?`Click point ${calibPts.length+1} of 2`:"2 points set"):"Calibrate scale"}</button>
           {/* CROSS-PAGE SCALE-OUTLIER review flag (backend scaleOutlier/scaleOutlierNote): this
               page's confirmed scale is an outlier vs the rest of this set — a wrong scale inflates
