@@ -1259,7 +1259,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
               make accepting them a click from here instead of a hunt across the sheet */}
           {pageSugs.length>0&&<div style={{display:"flex",alignItems:"center",gap:"0.4rem",fontSize:"0.62rem",color:"#7FE7E0",padding:"0.25rem 0.5rem 0.25rem 0.7rem",borderRadius:20,background:"rgba(42,191,191,0.10)",border:"1px dashed "+TEAL}}>
             🤖 {pageSugs.length} AI suggestion{pageSugs.length===1?"":"s"} here · {Math.round(pageSugs.reduce((s,z)=>s+(z.area_sf||0),0)).toLocaleString()} SF not counted
-            <button onClick={async()=>{ for(const z of pageSugs){ await acceptSuggestion(pageNum,z.id); } }} style={{padding:"0.18rem 0.5rem",borderRadius:6,border:"none",background:TEAL,color:"#06283D",fontSize:"0.6rem",fontWeight:800,fontFamily:"inherit",cursor:"pointer"}}>Accept all</button>
+            <button onClick={async()=>{ const _sf=Math.round(pageSugs.reduce((s,z)=>s+(z.area_sf||0),0)); if(!window.confirm("Book all "+pageSugs.length+" AI suggestion"+(pageSugs.length===1?"":"s")+" on this page? Adds "+_sf.toLocaleString()+" SF to the takeoff.")) return; for(const z of pageSugs){ await acceptSuggestion(pageNum,z.id); } }} style={{padding:"0.18rem 0.5rem",borderRadius:6,border:"none",background:TEAL,color:"#06283D",fontSize:"0.6rem",fontWeight:800,fontFamily:"inherit",cursor:"pointer"}}>Accept all</button>
           </div>}
           {bucketMode&&cornerMode&&(snapPts.length>0||detailSnaps.length>0)&&<div style={{fontSize:"0.62rem",color:"#FCD34D",padding:"0.3rem 0.6rem",borderRadius:20,background:"#3B2A05",border:"1px solid #92400E"}}>⊕ snapping to {(snapPts.length+detailSnaps.length).toLocaleString()} drawing corners{detailSnaps.length?` (${detailSnaps.length.toLocaleString()} close-in)`:""}{hoverSnap?" · locked: "+hoverSnap.kind:""}</div>}
           {deletedStack.length>0&&<button onClick={undoDelete} style={{fontSize:"0.65rem",padding:"0.3rem 0.75rem",borderRadius:20,border:"1px solid #B45309",background:"#451A03",color:"#FCD34D",cursor:"pointer",fontFamily:"inherit"}}>↩ Undo delete ({deletedStack.length})</button>}
@@ -1465,6 +1465,7 @@ function InteractiveView({ results, BACKEND, assignments, setAssignments, groupR
               })()}
               {selectedZones.length>0&&selectedZones.every(z=>z.suggest_only)&&(
                 <button onClick={async()=>{
+                  const _sf=Math.round(selectedZones.reduce((s,z)=>s+(z.area_sf||0),0)); if(!window.confirm("Add "+selectedZones.length+" AI wall"+(selectedZones.length>1?"s":"")+" to the takeoff? Adds "+_sf.toLocaleString()+" SF.")) return;
                   for(const z of selectedZones){
                     try{
                       const r=await fetch(BACKEND+"/accept-suggestion",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId:results.jobId,page:pageNum,pieceId:z.id})});
@@ -3080,6 +3081,20 @@ export default function BFSEstimator() {
     if(missWarnN>0) warns.push("• "+missWarnN+" elevation(s) look UNDER-marked vs the building face — a wall may be missing from the takeoff.");
     return warns.length===0 || window.confirm("⚠ CHECK BEFORE BIDDING\n\n"+warns.join("\n")+"\n\nExport anyway?");
   };
+  // Coerce a numeric input to a non-negative finite number (mirrors saveNet's guard): blocks
+  // negatives and Infinity that would otherwise flow into cost/total. marginPct is deliberately
+  // NOT routed through this — an intentional below-cost bid stays possible.
+  const num = v => { const n = parseFloat(v); return isFinite(n) && n >= 0 ? n : 0; };
+  // RATE GATE (two-tier, like moneyGuard): a real material (net>0) priced at $0 — rate cleared
+  // to 0, negative, or non-finite — silently adds $0 to the bid (under-bills the GC). moneyGuard
+  // checks SF/scale only, and the B1 reconciliation guard can't catch it (the $0 line reads $0 in
+  // BOTH the proposal total and the on-screen budget). Warn + confirm; never auto-block or drop.
+  const rateGuard=()=>{
+    const bad=priceRows.filter(r=>(r.net||0)>0 && !(Number.isFinite(+r.rate) && +r.rate>0));
+    if(!bad.length) return true;
+    const lines=bad.map(r=>"• "+r.cat+" — "+Math.round(r.net).toLocaleString()+" SF @ $"+(Number.isFinite(+r.rate)?(+r.rate):"—")+"/SF  → this line = $0 in the bid");
+    return window.confirm("⚠ ZERO-PRICED MATERIAL\n\nThese materials have square footage but no usable rate, so they add $0 to the bid:\n\n"+lines.join("\n")+"\n\nExport anyway?");
+  };
   // THE ANSWER KEY: every export = a finished, human-confirmed takeoff. Save the complete
   // final state as training gold — this is what eventually makes the auto-takeoff fully
   // autonomous (the estimator's job converges to pricing only).
@@ -3101,6 +3116,7 @@ export default function BFSEstimator() {
     const mt={};
     results.takeoffData.forEach(e=>(e.zones||[]).forEach(z=>{const k=dispName(z.materialName||z.category||"Panel");if(!mt[k])mt[k]={name:k,sf:0};mt[k].sf+=z.netArea||0;}));
     Object.entries(bucketByMat).forEach(([k,sf])=>{if(!mt[k])mt[k]={name:k,sf:0};mt[k].sf+=sf;});  // walls the estimator bucket-added
+    if(Math.round(Object.values(mt).reduce((s,m)=>s+(m.sf||0),0))<=0){ alert("Nothing to export — this takeoff has 0 SF. Accept AI walls into the takeoff or draw the walls first."); return; }
     const wb=buildExcel(results.projName||"Project",Object.values(mt));
     XLSX.writeFile(wb,"BFS_Takeoff_"+(results.projName||"Project").replace(/\s+/g,"_")+".xlsx");
     captureFinal("takeoff");
@@ -3162,10 +3178,10 @@ export default function BFSEstimator() {
   // in the total, the Budget and the exports (additive: these walls aren't in zones/assignments).
   // name resolution: explicit material > the color's name (set once, applies to ALL shapes
   // of that color — even retroactively) > generic
-  const bucketByMat = (bucketShapes||[]).reduce((acc,s)=>{const k=dispName(s.material||bucketColorNames[s.color]||"Cladding (added)");acc[k]=(acc[k]||0)+(s.area_sf||0);return acc;},{});
+  const bucketByMat = (bucketShapes||[]).reduce((acc,s)=>{const k=dispName(((s.material||bucketColorNames[s.color]||"")+"").trim()||"Cladding (added)");acc[k]=(acc[k]||0)+(s.area_sf||0);return acc;},{});
   const summary=results?()=>{
     const t={};
-    results.takeoffData.forEach(e=>(e.zones||[]).forEach(z=>{const k=dispName(z.category||"Other");if(!t[k])t[k]={net:0,adj:0,color:MAT_COLORS[k]||hashColor(k)};t[k].net+=z.netArea||0;t[k].adj+=(z.netArea||0)*1.15;}));
+    results.takeoffData.forEach(e=>(e.zones||[]).forEach(z=>{const k=dispName((z.category||"").trim()||"Other");if(!t[k])t[k]={net:0,adj:0,color:MAT_COLORS[k]||hashColor(k)};t[k].net+=z.netArea||0;t[k].adj+=(z.netArea||0)*1.15;}));
     Object.entries(bucketByMat).forEach(([k,sf])=>{if(!t[k])t[k]={net:0,adj:0,color:MAT_COLORS[k]||hashColor(k)};t[k].net+=sf;t[k].adj+=sf*1.15;});
     return t;
   }:null;
@@ -3186,7 +3202,7 @@ export default function BFSEstimator() {
   })();
   // Reviewed takeoff = what the user assigned in Interactive; drives the bid when present
   const reviewedSummary = Object.values(assignments).reduce((acc,a)=>{
-    const cat=dispName(a.category||a.materialName||"Panel"); if(!acc[cat])acc[cat]={net:0}; acc[cat].net+=a.area_sf||0; return acc;
+    const cat=dispName(((a.category||a.materialName||"")+"").trim()||"Panel"); if(!acc[cat])acc[cat]={net:0}; acc[cat].net+=a.area_sf||0; return acc;
   },{});
   // hasReviewed keys off HER ASSIGNMENTS only (before folding bucket) — so bucket-added walls
   // never flip the pricing source and drop the auto-detected zones from the bid.
@@ -3194,7 +3210,7 @@ export default function BFSEstimator() {
   Object.entries(bucketByMat).forEach(([k,sf])=>{if(!reviewedSummary[k])reviewedSummary[k]={net:0};reviewedSummary[k].net+=sf;});
   const pricingSource = hasReviewed ? reviewedSummary : (summaryData||{});
   const wasteOf = cat => (pricing.wastePerMat && pricing.wastePerMat[cat]!=null) ? pricing.wastePerMat[cat] : pricing.wastePct;  // waste differs by material (lap ~10, shake ~15+, cut panels less)
-  const setWasteMat = (cat,v)=>setPricing(p=>({...p,wastePerMat:{...(p.wastePerMat||{}),[cat]:v}}));
+  const setWasteMat = (cat,v)=>setPricing(p=>({...p,wastePerMat:{...(p.wastePerMat||{}),[cat]:num(v)}}));
   const priceRows = Object.entries(pricingSource).map(([cat,{net:net0}])=>{
     const net = (pricing.sfOverride && pricing.sfOverride[cat]!=null) ? pricing.sfOverride[cat] : net0;  // editable per job
     const rate = pricing.rates[cat]!=null ? pricing.rates[cat] : (DEFAULT_RATES[cat]??DEFAULT_RATES.Other);
@@ -3206,7 +3222,9 @@ export default function BFSEstimator() {
   const bidTotal = costSubtotal*(1+pricing.marginPct/100);
   const exportPricedExcel=()=>{
     if(!priceRows.length)return;
+    if(Math.round(priceRows.reduce((s,r)=>s+(r.net||0),0))<=0){ alert("Nothing to export — every material is 0 SF (still a suggestion, hidden, or overridden to 0). Book some SF before exporting a bid."); return; }
     if(!moneyGuard())return;
+    if(!rateGuard())return;
     const mats=priceRows.map(r=>({name:r.cat,sf:r.net*(1+r.wastePct/100)/(1+pricing.wastePct/100),rate:r.rate}));  // per-material waste
     const wb=buildExcel(results.projName||"Project",mats,{wastePct:pricing.wastePct,marginPct:pricing.marginPct});
     XLSX.writeFile(wb,"BFS_Bid_"+(results.projName||"Project").replace(/\s+/g,"_")+".xlsx");
@@ -3228,12 +3246,12 @@ export default function BFSEstimator() {
   const autoTrimRollup = (()=>{ const m={}; (results?.takeoffData||[]).forEach(e=>(e.autoTrim||[]).forEach(it=>{const k=it.material||"Trim (auto)";if(!m[k])m[k]=0;m[k]+=it.lf||0;})); return Object.entries(m).map(([material,lf])=>({material,lf})).sort((a,b)=>b.lf-a.lf); })();
   const autoTrimTotalLF = autoTrimRollup.reduce((s,r)=>s+r.lf,0);
   // ── Budget tab: SF (+ LF trim) × the rates the estimator sets per job → live bid + one-click Excel ──
-  const setRate = (cat,v)=>setPricing(p=>({...p,rates:{...p.rates,[cat]:v}}));
-  const setLfRate = (m,v)=>setPricing(p=>({...p,lfRates:{...(p.lfRates||{}),[m]:v}}));
+  const setRate = (cat,v)=>setPricing(p=>({...p,rates:{...p.rates,[cat]:num(v)}}));
+  const setLfRate = (m,v)=>setPricing(p=>({...p,lfRates:{...(p.lfRates||{}),[m]:num(v)}}));
   const lfRateOf = m => (pricing.lfRates && pricing.lfRates[m]!=null) ? pricing.lfRates[m] : 12;
   const lfRows = linearRollup.map(it=>({...it, rate:lfRateOf(it.material), cost: (it.lf||0)*lfRateOf(it.material)}));
   const lfSubtotal = lfRows.reduce((s,r)=>s+r.cost,0);
-  const setSf=(cat,v)=>setPricing(p=>({...p,sfOverride:{...(p.sfOverride||{}),[cat]:v}}));   // override a material's SF for THIS job
+  const setSf=(cat,v)=>setPricing(p=>({...p,sfOverride:{...(p.sfOverride||{}),[cat]:num(v)}}));   // override a material's SF for THIS job
   const customLines = pricing.customLines || [];
   const addCustomLine=()=>setPricing(p=>({...p,customLines:[...(p.customLines||[]),{id:Date.now(),name:"",qty:1,rate:0}]}));
   const updCustomLine=(id,k,v)=>setPricing(p=>({...p,customLines:(p.customLines||[]).map(l=>l.id===id?{...l,[k]:v}:l)}));
@@ -3243,7 +3261,9 @@ export default function BFSEstimator() {
   const budgetTotal = budgetSubtotal*(1+pricing.marginPct/100);
   const exportBudgetExcel=()=>{
     if(!results) return;
+    if(Math.round(priceRows.reduce((s,r)=>s+(r.net||0),0)+lfRows.reduce((s,r)=>s+(r.lf||0),0)+customLines.reduce((s,l)=>s+(l.qty||0),0))<=0){ alert("Nothing to export — this budget has 0 SF / LF / line-item quantity."); return; }
     if(!moneyGuard())return;
+    if(!rateGuard())return;
     const w=1+(pricing.wastePct||0)/100;   // buildExcel applies waste to every qty; pre-divide LF/custom so only material SF gets waste
     const mats=[...priceRows.map(r=>({name:r.cat,sf:r.net*(1+r.wastePct/100)/w,rate:r.rate})),   // per-material waste (pre-scaled: buildExcel re-applies the global %)
                 ...lfRows.map(r=>({name:r.material+" (per LF)",sf:(r.lf||0)/w,rate:r.rate})),
@@ -3257,10 +3277,12 @@ export default function BFSEstimator() {
   // clone of the validated template (13/13 cell-match vs the submitted Malden bid).
   const exportBidV2=async()=>{
     if(!results||!priceRows.length)return;
+    if(budgetTotal<=0){ alert("Nothing to export — the proposal total is $0 (0 SF booked)."); return; }
     if(!moneyGuard())return;
+    if(!rateGuard())return;
     const perPageByCat={};
     (results.takeoffData||[]).forEach(e=>(e.zones||[]).forEach(z=>{
-      const k=dispName(z.category||"Other");const pg=e.pageNumber||1;
+      const k=dispName((z.category||"").trim()||"Other");const pg=e.pageNumber||1;
       (perPageByCat[k]=perPageByCat[k]||{})[pg]=(perPageByCat[k][pg]||0)+(z.netArea||0);
     }));
     Object.entries(bucketByMat||{}).forEach(([k,sf])=>{if(sf>0){(perPageByCat[k]=perPageByCat[k]||{})[0]=(perPageByCat[k][0]||0)+sf;}});
@@ -3452,9 +3474,9 @@ export default function BFSEstimator() {
                 {customLines.map(l=>(
                   <div key={l.id} style={{display:"grid",gridTemplateColumns:"1.7fr 0.9fr 0.9fr 1fr 1fr",padding:"0.45rem 1rem",borderTop:"1px solid #F1F5F9",alignItems:"center",fontSize:"0.76rem",gap:"0.3rem"}}>
                     <input value={l.name} onChange={e=>updCustomLine(l.id,"name",e.target.value)} placeholder="e.g. Scaffolding, mobilization…" style={{padding:"0.22rem 0.4rem",borderRadius:5,border:"1px solid #E2E8F0",fontSize:"0.73rem",fontFamily:"inherit",minWidth:0}}/>
-                    <input type="number" value={l.qty} onChange={e=>updCustomLine(l.id,"qty",parseFloat(e.target.value)||0)} style={{textAlign:"right",padding:"0.22rem 0.35rem",borderRadius:5,border:"1px solid #E2E8F0",fontSize:"0.74rem",fontFamily:"inherit",minWidth:0}}/>
+                    <input type="number" value={l.qty} onChange={e=>updCustomLine(l.id,"qty",num(e.target.value))} style={{textAlign:"right",padding:"0.22rem 0.35rem",borderRadius:5,border:"1px solid #E2E8F0",fontSize:"0.74rem",fontFamily:"inherit",minWidth:0}}/>
                     <div/>
-                    <div style={{textAlign:"right",whiteSpace:"nowrap"}}><span style={{color:"#94A3B8"}}>$</span><input type="number" value={l.rate} onChange={e=>updCustomLine(l.id,"rate",parseFloat(e.target.value)||0)} style={{width:58,textAlign:"right",padding:"0.22rem 0.35rem",borderRadius:5,border:"1px solid #E2E8F0",fontSize:"0.74rem",fontFamily:"inherit"}}/></div>
+                    <div style={{textAlign:"right",whiteSpace:"nowrap"}}><span style={{color:"#94A3B8"}}>$</span><input type="number" value={l.rate} onChange={e=>updCustomLine(l.id,"rate",num(e.target.value))} style={{width:58,textAlign:"right",padding:"0.22rem 0.35rem",borderRadius:5,border:"1px solid #E2E8F0",fontSize:"0.74rem",fontFamily:"inherit"}}/></div>
                     <div style={{textAlign:"right",fontWeight:700,color:"#0F172A",display:"flex",justifyContent:"flex-end",alignItems:"center",gap:"0.4rem"}}>${Math.round((l.qty||0)*(l.rate||0)).toLocaleString()}<span onClick={()=>delCustomLine(l.id)} title="remove" style={{cursor:"pointer",color:"#F87171",fontWeight:700}}>×</span></div>
                   </div>
                 ))}
@@ -3464,7 +3486,7 @@ export default function BFSEstimator() {
                 {[["Waste %","wastePct"],["Margin %","marginPct"]].map(([lab,key])=>(
                   <div key={key} style={{flex:1,background:"#fff",borderRadius:12,border:"1px solid #E3EAF3",boxShadow:"0 1px 2px rgba(27,79,138,0.06), 0 8px 24px rgba(27,79,138,0.08)",padding:"0.6rem 0.85rem",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                     <span style={{fontSize:"0.72rem",color:"#3D4E63",fontWeight:600}}>{lab}</span>
-                    <input type="number" value={pricing[key]} onChange={e=>setPricing(p=>({...p,[key]:parseFloat(e.target.value)||0}))} style={{width:56,textAlign:"right",padding:"0.25rem 0.4rem",borderRadius:5,border:"1px solid #CBD5E1",fontSize:"0.78rem",fontFamily:"inherit"}}/>
+                    <input type="number" value={pricing[key]} onChange={e=>setPricing(p=>({...p,[key]:key==="marginPct"?(parseFloat(e.target.value)||0):num(e.target.value)}))} style={{width:56,textAlign:"right",padding:"0.25rem 0.4rem",borderRadius:5,border:"1px solid #CBD5E1",fontSize:"0.78rem",fontFamily:"inherit"}}/>
                   </div>
                 ))}
               </div>
@@ -3987,7 +4009,7 @@ export default function BFSEstimator() {
                     <div style={{display:"flex",gap:"1rem",marginBottom:"1rem",flexWrap:"wrap"}}>
                       <div style={{display:"flex",flexDirection:"column",gap:"0.25rem"}}>
                         <label style={{fontSize:"0.6rem",color:"#94A3B8",textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:600}}>Waste %</label>
-                        <input type="number" value={pricing.wastePct} onChange={e=>setPricing(p=>({...p,wastePct:parseFloat(e.target.value)||0}))} style={{width:80,padding:"0.4rem 0.5rem",borderRadius:6,border:"1px solid #E2E8F0",fontSize:"0.8rem",fontFamily:"inherit"}}/>
+                        <input type="number" value={pricing.wastePct} onChange={e=>setPricing(p=>({...p,wastePct:num(e.target.value)}))} style={{width:80,padding:"0.4rem 0.5rem",borderRadius:6,border:"1px solid #E2E8F0",fontSize:"0.8rem",fontFamily:"inherit"}}/>
                       </div>
                       <div style={{display:"flex",flexDirection:"column",gap:"0.25rem"}}>
                         <label style={{fontSize:"0.6rem",color:"#94A3B8",textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:600}}>Margin %</label>
@@ -4006,7 +4028,7 @@ export default function BFSEstimator() {
                             <td style={{padding:"0.5rem 0.9rem",textAlign:"right",fontSize:"0.72rem",color:"#64748B"}}>{Math.round(r.adjSF).toLocaleString()}</td>
                             <td style={{padding:"0.5rem 0.9rem",textAlign:"right"}}>
                               <span style={{color:"#94A3B8",fontSize:"0.72rem"}}>$</span>
-                              <input type="number" value={r.rate} onChange={e=>setPricing(p=>({...p,rates:{...p.rates,[r.cat]:parseFloat(e.target.value)||0}}))} style={{width:64,padding:"0.3rem 0.4rem",borderRadius:5,border:"1px solid #E2E8F0",fontSize:"0.75rem",textAlign:"right",fontFamily:"inherit"}}/>
+                              <input type="number" value={r.rate} onChange={e=>setRate(r.cat,parseFloat(e.target.value)||0)} style={{width:64,padding:"0.3rem 0.4rem",borderRadius:5,border:"1px solid #E2E8F0",fontSize:"0.75rem",textAlign:"right",fontFamily:"inherit"}}/>
                             </td>
                             <td style={{padding:"0.5rem 0.9rem",textAlign:"right",fontSize:"0.8rem",fontWeight:700,color:"#0F172A"}}>${Math.round(r.cost).toLocaleString()}</td>
                           </tr>
